@@ -5,6 +5,7 @@ import { audio } from '../core/audio';
 import { pick, rand, randInt, weightedPick } from '../core/math';
 import { disposeTree, materials } from '../world/materials';
 import { buildWorldWeapon } from './viewmodels';
+import { pickupSprite } from '../sprites/pickups';
 import type { Infected } from './infected';
 import type { Game } from './game';
 import type { Door, Terminal } from '../world/level';
@@ -23,6 +24,7 @@ interface Interactable {
   prompt(): Prompt | null;
   act(): void;
   mesh?: THREE.Object3D;
+  sprite?: THREE.Sprite;
   gone?: boolean;
   keyItem?: ItemId;
 }
@@ -209,6 +211,7 @@ export class Interactions {
       },
     };
     this.list.push(it);
+    this.attachSprite(it, `pickup-${ch}`, { '1': 'i-ammo', '2': 'i-medkit', '3': 'i-scrap', '4': 'i-vial' }[ch] ?? 'i-scrap');
   }
 
   private addWeapon(id: WeaponId, pos: THREE.Vector3) {
@@ -235,6 +238,7 @@ export class Interactions {
       },
     };
     this.list.push(it);
+    this.attachSprite(it, `weapon-${id}`, WEAPONS[id].icon, true);
   }
 
   private addKey(item: ItemId, qty: number, label: string, pos: THREE.Vector3) {
@@ -270,6 +274,7 @@ export class Interactions {
       },
     };
     this.list.push(it);
+    this.attachSprite(it, `key-${item}`, ITEMS[item].icon);
   }
 
   private addTerminal(t: Terminal) {
@@ -356,9 +361,36 @@ export class Interactions {
     this.list.push(it);
   }
 
+  private spriteMode = true;
+
+  /** Billboard stand-in for a pickup's 3D model (2D sprite mode). */
+  private attachSprite(it: Interactable, key: string, iconId: string, wide = false) {
+    if (!it.mesh) return;
+    const s = pickupSprite(key, iconId, wide);
+    s.position.x = it.pos.x;
+    s.position.z = it.pos.z;
+    this.group.add(s);
+    it.sprite = s;
+    s.visible = this.spriteMode;
+    it.mesh.visible = !this.spriteMode;
+  }
+
+  setSpriteMode(on: boolean) {
+    this.spriteMode = on;
+    for (const it of this.list) {
+      if (!it.sprite || !it.mesh) continue;
+      it.sprite.visible = on;
+      it.mesh.visible = !on;
+    }
+  }
+
   private remove(it: Interactable) {
     it.gone = true;
     if (it.mesh) it.mesh.removeFromParent();
+    if (it.sprite) {
+      it.sprite.removeFromParent();
+      it.sprite.material.dispose();
+    }
     this.list = this.list.filter((x) => x !== it);
     if (this.focus === it) this.focus = null;
   }

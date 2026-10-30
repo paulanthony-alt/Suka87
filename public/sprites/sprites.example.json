@@ -1,0 +1,35 @@
+{
+  "infected": {
+    "shambler": {
+      "height": 2.0,
+      "anims": {
+        "idle":   { "file": "shambler/idle.png",   "frames": 2, "fps": 2 },
+        "walk":   { "file": "shambler/walk.png",   "frames": 4, "fps": 6, "emissive": "shambler/walk_glow.png" },
+        "run":    { "file": "shambler/run.png",    "frames": 4, "fps": 10 },
+        "attack": { "file": "shambler/attack.png", "frames": 4, "fps": 9 },
+        "pain":   { "file": "shambler/pain.png",   "frames": 1 },
+        "scream": { "file": "shambler/scream.png", "frames": 2, "fps": 7 },
+        "death":  { "file": "shambler/death.png",  "frames": 5, "fps": 9 }
+      }
+    },
+    "runner":   { "anims": { "walk": { "file": "runner/walk.png", "frames": 4 } } },
+    "bloater":  { "anims": { "walk": { "file": "bloater/walk.png", "frames": 4 } } },
+    "screamer": { "anims": { "walk": { "file": "screamer/walk.png", "frames": 4 } } },
+    "brute":    { "anims": { "walk": { "file": "brute/walk.png", "frames": 4 } } },
+    "patientZero": { "anims": { "walk": { "file": "patient-zero/walk.png", "frames": 4 } } }
+  },
+  "weapons": {
+    "rifle":   { "idle": "weapons/rifle.png", "fire": "weapons/rifle_fire.png", "reload": "weapons/rifle_reload.png" },
+    "pistol":  { "idle": "weapons/pistol.png", "fire": "weapons/pistol_fire.png" },
+    "axe":     { "idle": "weapons/axe.png" }
+  },
+  "pickups": {
+    "pickup-1": "pickups/ammo.png",
+    "pickup-2": "pickups/medical.png",
+    "pickup-3": "pickups/materials.png",
+    "pickup-4": "pickups/lab.png",
+    "weapon-rifle": "pickups/rifle.png",
+    "key-keycard": "pickups/keycard.png",
+    "key-sedative": "pickups/sedative.png"
+  }
+}

@@ -9,6 +9,8 @@ import type { Infected, Zone } from './infected';
 type WState = 'ready' | 'equip' | 'holster' | 'reload' | 'melee' | 'lowered';
 
 const ray = new THREE.Raycaster();
+// infected skeletons live on layer 1 in sprite mode; bullets must still hit them
+ray.layers.enableAll();
 const tmpV = new THREE.Vector3();
 const tmpV2 = new THREE.Vector3();
 
@@ -50,6 +52,8 @@ export class WeaponSystem {
   private sprint = 0;
   private lowerAmount = 0;
   private time = 0;
+  /** pose for the 2D sprite-mode weapon overlay */
+  pose2d = { dx: 0, dy: 0, rx: 0, ry: 0, rz: 0, ads: 0, flash: false, reloading: false };
 
   constructor(private game: Game) {
     this.camera = new THREE.PerspectiveCamera(60, 1, 0.01, 10);
@@ -633,6 +637,15 @@ export class WeaponSystem {
 
     vm.root.position.copy(pos);
     vm.root.rotation.copy(rot);
+    const q = this.pose2d;
+    q.dx = pos.x - vm.hip.x;
+    q.dy = pos.y - vm.hip.y;
+    q.rx = rot.x;
+    q.ry = rot.y;
+    q.rz = rot.z;
+    q.ads = ads;
+    q.flash = this.flashT > 0;
+    q.reloading = this.state === 'reload';
 
     // moving parts
     if (vm.slide) vm.slide.position.z = clamp(this.slideSpring.update(dt) * 0.02, -0.035, 0);

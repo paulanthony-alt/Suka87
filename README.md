@@ -23,6 +23,17 @@ npm run validate:levels   # connectivity / door / placement checks for every map
 Use a desktop browser with a mouse; the game captures the pointer when you click the view.
 Headphones are recommended because enemy positions are audible (HRTF spatial audio).
 
+## 2D sprite mode
+
+By default the infected, pickups and the held weapon are drawn as 2D sprites (Doom-style
+billboards) inside the 3D hospital, so gameplay can be tested before 3D models exist. Drop your
+PNGs into `public/sprites/` and list them in `public/sprites/sprites.json`; see
+[`public/sprites/README.md`](public/sprites/README.md) for sheet layout and naming. Anything not
+listed uses a generated placeholder. Toggle **Settings → Display → 2D sprite characters** to switch
+back to the procedural 3D models at any time; hit zones and AI are identical in both modes.
+
+![2D sprite mode](docs/screenshot-sprites.jpg)
+
 ## How it plays
 
 **Waves are levels.** Each wave is a section of the hospital with its own objectives. Every wave

@@ -366,3 +366,15 @@ kbd { min-width: calc(130px * var(--s)); font: 700 calc(18px * var(--s)) var(--d
 .ending .stats div { display: flex; justify-content: space-between; height: 44px; align-items: center; border-bottom: 1px solid rgba(231, 233, 226, .08); font-size: 17px; }
 .ending .stats b { font: 700 24px var(--display); }
 .ending .menu { justify-content: center; margin-top: 40px; }
+
+/* ------------------------------------------------------------------ 2D sprite-mode weapon */
+.fpw { position: absolute; inset: 0; overflow: hidden; }
+.fpw-stage { position: absolute; left: 50%; bottom: 0; width: 1920px; height: 1080px; margin-left: -960px; transform: scale(var(--s)); transform-origin: 50% 100%; }
+.fpw-inner { position: absolute; inset: 0; transform-origin: 70% 100%; will-change: transform; }
+.fpw-inner svg { position: absolute; inset: 0; overflow: visible; }
+.fpw-gun { color: #101615; filter: drop-shadow(0 0 1.5px #4a5d57) drop-shadow(0 6px 10px rgba(0, 0, 0, .6)); }
+.fpw-hand { fill: #191e1d; stroke: #4a5d57; stroke-width: 2; }
+.fpw-arm { stroke: #141918; stroke-width: 62; stroke-linecap: round; filter: drop-shadow(0 0 1.5px #4a5d57); }
+.fpw-mf { opacity: 0; mix-blend-mode: screen; }
+.fpw-inner.firing .fpw-mf { opacity: 1; }
+.fpw-img { position: absolute; left: 50%; bottom: 0; transform: translateX(-10%); max-height: 70%; image-rendering: auto; }

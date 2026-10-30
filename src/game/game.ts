@@ -22,6 +22,7 @@ import { Hud } from '../ui/hud';
 import { RadialWheel } from '../ui/wheel';
 import { CraftingPanel } from '../ui/crafting';
 import { Menus } from '../ui/menus';
+import { FirstPersonWeapon } from '../ui/fpweapon';
 
 export type GameState = 'title' | 'briefing' | 'playing' | 'paused' | 'dead' | 'victory';
 
@@ -70,6 +71,7 @@ export class Game {
   readonly toolWheel: RadialWheel;
   readonly crafting: CraftingPanel;
   readonly menus: Menus;
+  readonly fpWeapon: FirstPersonWeapon;
 
   state: GameState = 'title';
   time = 0;
@@ -134,6 +136,8 @@ export class Game {
       hpMul: 1,
       dmgMul: 1,
       lure: null,
+      cameraPos: this.camera.position,
+      spriteMode: this.settings.spriteMode,
       hitPlayer: (inf, dmg, exp, knock) => this.hitPlayer(inf, dmg, exp, knock),
       scream: (inf) => this.onScream(inf),
     };
@@ -143,6 +147,7 @@ export class Game {
     this.toolWheel = new RadialWheel(uiRoot, 'tool');
     this.crafting = new CraftingPanel(this, uiRoot);
     this.menus = new Menus(this, uiRoot);
+    this.fpWeapon = new FirstPersonWeapon(this, uiRoot);
 
     this.inventory.onChange(() => {
       this.objectives.inventoryChanged();
@@ -181,6 +186,8 @@ export class Game {
     this.flashlight.castShadow = s.shadows;
     audio.volumes = { master: s.masterVolume, sfx: s.sfxVolume, music: s.musicVolume };
     audio.applyVolumes();
+    this.infCtx.spriteMode = s.spriteMode;
+    this.interactions.setSpriteMode(s.spriteMode);
     this.infCtx.hpMul = this.difficulty.enemyHp;
     this.infCtx.dmgMul = this.difficulty.enemyDmg;
   }
@@ -484,9 +491,10 @@ export class Game {
     }
     if (this.level) {
       const view = this.state === 'playing' || this.state === 'paused' || this.state === 'dead' ? { scene: this.weapons.scene, camera: this.weapons.camera } : undefined;
-      this.renderer.render(this.scene, this.camera, this.time, this.player.alive ? view : undefined);
+      this.renderer.render(this.scene, this.camera, this.time, this.player.alive && !this.settings.spriteMode ? view : undefined);
     }
     this.hud.frame(rawDt);
+    this.fpWeapon.update();
     this.input.endFrame();
   }
 

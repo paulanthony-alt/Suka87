@@ -15,6 +15,8 @@ export interface Settings {
   bloom: boolean;
   filmGrain: boolean;
   showFps: boolean;
+  /** render infected, pickups and the held weapon as 2D sprites */
+  spriteMode: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -32,6 +34,7 @@ const DEFAULTS: Settings = {
   bloom: true,
   filmGrain: true,
   showFps: false,
+  spriteMode: true,
 };
 
 const KEY = 'suka87.settings.v1';

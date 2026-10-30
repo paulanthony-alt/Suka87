@@ -6,6 +6,8 @@ import type { Level } from '../world/level';
 import { audio } from '../core/audio';
 import { Spring, chance, clamp, damp, pick, rand, randInt, wrapAngle } from '../core/math';
 import type { Effects } from './effects';
+import { InfectedSprite } from '../sprites/infectedSprite';
+import type { AnimName } from '../sprites/library';
 
 export type Zone = 'head' | 'body' | 'limb';
 type State = 'idle' | 'wander' | 'investigate' | 'chase' | 'attack' | 'stagger' | 'scream' | 'charge' | 'stunned' | 'bash' | 'dead';
@@ -25,6 +27,8 @@ export interface InfectedContext {
   hpMul: number;
   dmgMul: number;
   lure: THREE.Vector3 | null;
+  cameraPos: THREE.Vector3;
+  spriteMode: boolean;
   hitPlayer(inf: Infected, damage: number, exposure: number, knockback: number): void;
   scream(inf: Infected): void;
 }
@@ -44,6 +48,7 @@ interface RigMaterials {
 }
 
 let mats: RigMaterials | null = null;
+let mutationLevel = 0.15;
 const geos = {
   capsule: new THREE.CapsuleGeometry(1, 1, 6, 12),
   sphere: new THREE.SphereGeometry(1, 18, 14),
@@ -84,6 +89,7 @@ function rigMaterials(): RigMaterials {
 
 /** Called each wave so veins and eyes glow brighter as the strain mutates. */
 export function setMutation(level: number) {
+  mutationLevel = level;
   const m = rigMaterials();
   for (const s of m.skins) s.emissiveIntensity = 0.08 + level * 0.5;
   m.eye.emissiveIntensity = 2 + level * 3;
@@ -216,6 +222,9 @@ export class Infected {
   readonly id = nextId++;
   readonly def: InfectedDef;
   readonly rig: Rig;
+  readonly sprite: InfectedSprite;
+  private spriteMode: boolean | null = null;
+  private spriteFlip = false;
   readonly pos: THREE.Vector3;
   readonly vel = new THREE.Vector3();
   yaw = rand(0, Math.PI * 2);
@@ -274,6 +283,8 @@ export class Infected {
     this.dormant = this.boss;
     for (const m of this.rig.hitMeshes) m.userData.owner = this;
     this.rig.root.position.copy(this.pos);
+    this.sprite = new InfectedSprite(this.boss ? 'patientZero' : kind);
+    this.setRenderMode(ctx.spriteMode);
     if (opts.alerted) this.alert(ctx, true);
   }
 
@@ -381,6 +392,7 @@ export class Infected {
     const dealt = amount * mul;
     this.hp -= dealt;
     this.lastHitTime = ctx.time;
+    this.sprite.flashHurt();
     this.dormant = false;
 
     // reaction
@@ -429,6 +441,7 @@ export class Infected {
     this.stateTime += dt;
     if (!this.alive) {
       this.animateDeath(dt);
+      this.updateSprite(dt, ctx);
       return;
     }
     this.screamCooldown -= dt;
@@ -662,6 +675,7 @@ export class Infected {
     }
 
     this.animate(dt, ctx, toPlayer, dist);
+    this.updateSprite(dt, ctx);
   }
 
   // ------------------------------------------------------------------ animation
@@ -820,7 +834,40 @@ export class Infected {
     return this.rig.spine.getWorldPosition(out);
   }
 
+  /** Sprites: hide the skeleton from the camera (layer 1) but keep it for hit detection. */
+  setRenderMode(sprites: boolean) {
+    if (this.spriteMode === sprites) return;
+    this.spriteMode = sprites;
+    this.rig.root.traverse((o) => o.layers.set(sprites ? 1 : 0));
+    this.sprite.mesh.visible = sprites;
+  }
+
+  private updateSprite(dt: number, ctx: InfectedContext) {
+    if (ctx.spriteMode !== this.spriteMode) this.setRenderMode(ctx.spriteMode);
+    if (!this.spriteMode) return;
+    let anim: AnimName = 'idle';
+    let speed = 1;
+    const v = this.moveSpeed;
+    switch (this.state) {
+      case 'dead': anim = 'death'; break;
+      case 'attack': case 'bash': anim = 'attack'; break;
+      case 'scream': anim = 'scream'; break;
+      case 'stagger': case 'stunned': anim = 'pain'; break;
+      case 'charge': anim = this.stateTime < 0.75 ? 'scream' : 'run'; speed = 1.6; break;
+      default:
+        if (v > 2.2) { anim = 'run'; speed = v / 4.5; }
+        else if (v > 0.15) { anim = 'walk'; speed = Math.max(0.6, v / 1.1); }
+    }
+    // mirror the sheet when crossing the view right-to-left
+    const vx = ctx.cameraPos.x - this.pos.x;
+    const vz = ctx.cameraPos.z - this.pos.z;
+    const lateral = this.vel.x * vz - this.vel.z * vx;
+    if (Math.abs(lateral) > 0.3 * Math.hypot(vx, vz)) this.spriteFlip = lateral < 0;
+    this.sprite.update(dt, anim, this.pos, this.scale, ctx.cameraPos, speed, this.spriteFlip, 0.6 + mutationLevel * 1.4);
+  }
+
   dispose() {
     this.rig.root.removeFromParent();
+    this.sprite.dispose();
   }
 }
