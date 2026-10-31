@@ -83,6 +83,18 @@ Infected bash through closed doors, path around props with a flow field, separat
 and react to hits with stagger, head-snaps and limp falls. Lethal head hits on smaller infected
 take the head off.
 
+#### Concept art
+
+Reference designs for each infected type (full sheet with stats, harvest and design notes:
+[`docs/concepts/infected-roster.jpg`](docs/concepts/infected-roster.jpg)). They are meant as the
+target look for the 2D sprite sheets and, later, the 3D models.
+
+| Shambler | Runner | Bloater |
+|---|---|---|
+| ![Shambler](docs/concepts/shambler.jpg) | ![Runner](docs/concepts/runner.jpg) | ![Bloater](docs/concepts/bloater.jpg) |
+| **Screamer** | **Brute** | **Patient Zero** |
+| ![Screamer](docs/concepts/screamer.jpg) | ![Brute](docs/concepts/brute.jpg) | ![Patient Zero](docs/concepts/patient-zero.jpg) |
+
 ### Weapons and tools
 
 | Weapon | Notes |
