@@ -101,7 +101,8 @@ export class Game {
     this.camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.05, 120);
     this.scene.add(this.camera);
     this.scene.background = new THREE.Color('#050808');
-    this.scene.fog = new THREE.FogExp2('#050808', 0.038);
+    // dark, faintly green-grey haze: distance falls into dusty air instead of a black void
+    this.scene.fog = new THREE.FogExp2('#0b1110', 0.034);
     this.scene.add(this.effects.group);
     this.input = new Input(this.renderer.canvas);
 
