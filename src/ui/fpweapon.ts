@@ -48,7 +48,10 @@ export class FirstPersonWeapon {
     if (art) {
       this.inner.innerHTML = '';
       this.img = art.idle.cloneNode() as HTMLImageElement;
-      this.img.className = 'fpw-img';
+      // 16:9 art is a full 1920×1080 screen-space frame (arms already run off the bottom/right
+      // edges); anything else is a cut-out anchored bottom, right of centre.
+      const ratio = art.idle.naturalWidth / Math.max(1, art.idle.naturalHeight);
+      this.img.className = Math.abs(ratio - 16 / 9) < 0.03 ? 'fpw-img full' : 'fpw-img';
       this.inner.appendChild(this.img);
       return;
     }

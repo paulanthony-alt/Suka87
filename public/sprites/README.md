@@ -32,6 +32,11 @@ muzzle-flash frame and `reload` while reloading. Images are anchored to the bott
 right of centre, and scaled to at most 70% of the screen height. Bob, sway, recoil, reload tilt and
 swings are applied on top.
 
+**Full-frame art (recommended):** a 16:9 image (1920×1080) is treated as the whole screen and drawn
+1:1, so you compose it exactly as the player sees it: arms running off the bottom/right edges, the
+muzzle a little right of and below the crosshair at the centre. The shipped art in `weapons/` works
+this way (WebP with alpha, plus a `_fire` variant with the muzzle flash baked in).
+
 ## Pickups
 
 Keys: `pickup-1` ammo, `pickup-2` medical, `pickup-3` materials, `pickup-4` lab supplies,
