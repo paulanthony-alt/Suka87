@@ -2,6 +2,7 @@ import type { Game } from '../game/game';
 import { CURE_COMPONENTS, ITEMS, RECIPES, TOOL_ORDER, type ItemId, type Recipe, type Station } from '../data/items';
 import { icon } from './icons';
 import { audio } from '../core/audio';
+import { enter, pop } from './anim';
 
 const DROPS: ItemId[] = ['tissue', 'plasma', 'neural', 'adrenal'];
 const SUPPLIES: ItemId[] = ['cloth', 'antiseptic', 'chemicals', 'scrap', 'reagent', 'vial', 'sedative'];
@@ -77,6 +78,8 @@ export class CraftingPanel {
       this.selected = RECIPES.find((r) => r.station === 'lab' && !this.game.inventory.has(r.output)) ?? RECIPES.find((r) => r.station === 'lab')!;
     }
     this.render();
+    enter(this.root.querySelectorAll('.craft-inner header, .craft .col, .cure-strip'), { y: 26, each: 0.06 });
+    enter(this.root.querySelectorAll('.rrow'), { x: -14, each: 0.018, delay: 0.1 });
     let last = performance.now();
     const tick = (now: number) => {
       if (!this.open) return;
@@ -124,6 +127,8 @@ export class CraftingPanel {
         this.holdSpace = false;
         if (r.station === 'lab' && this.game.objectives.componentsReady()) this.game.hint('allcomponents', 'That\'s all four. Bring them to the synthesiser.');
         this.render();
+        pop(this.root.querySelector('.dhead'), 1.05);
+        pop(this.root.querySelector(`[data-recipe="${r.id}"]`), 1.06);
       }
     } else this.crafting = null;
     const fill = this.root.querySelector('.craft-btn .fill') as HTMLElement | null;

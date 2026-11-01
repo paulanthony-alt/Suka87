@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { InfectedKind } from '../data/infected';
+import { detectRig, type PuppetRig } from './puppet';
 
 /**
  * 2D sprite assets. Artwork is loaded from `public/sprites/sprites.json` (see
@@ -18,6 +19,8 @@ export interface SpriteAnim {
   /** world size of one frame in metres (before the infected's own scale) */
   width: number;
   height: number;
+  /** joints for puppet animation (single-image art only) */
+  rig?: PuppetRig;
 }
 
 interface AnimSpec {
@@ -83,6 +86,7 @@ class SpriteLibrary {
               loop: a.loop ?? LOOPING[anim],
               height: h,
               width: (h * im.width) / a.frames / im.height,
+              rig: a.frames === 1 ? detectRig(im) : undefined,
             });
           })(),
         );

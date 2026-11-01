@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { sprites, type AnimName, type SpriteAnim } from './library';
 import type { InfectedKind } from '../data/infected';
+import { applyRig, enablePuppet, puppetUniforms, type PuppetUniforms } from './puppet';
 
-const quad = new THREE.PlaneGeometry(1, 1).translate(0, 0.5, 0);
+// subdivided so the puppet deformer has vertices to bend
+const quad = new THREE.PlaneGeometry(1, 1, 14, 36).translate(0, 0.5, 0);
 
 /**
  * Camera-facing (Y-axis) billboard that plays a sprite sheet. The infected's skeleton keeps
@@ -21,16 +23,25 @@ export class InfectedSprite {
   private hurt = 0;
   /** single-image art has no baked emissive; it gets a dim self-light so it reads in the dark */
   private selfLit = false;
+  private pu: PuppetUniforms = puppetUniforms();
+  private gait = Math.random() * 10;
+  private headT = Math.random() * 10;
+  private attackK = 0;
+  private screamK = 0;
+  private walkK = 0;
 
   constructor(private kind: InfectedKind | 'patientZero') {
     this.material = new THREE.MeshStandardMaterial({
       alphaTest: 0.5,
       side: THREE.DoubleSide,
-      roughness: 0.85,
+      roughness: 1,
+      metalness: 0,
       emissive: '#ffffff',
       emissiveIntensity: 1,
     });
     this.depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking, alphaTest: 0.5 });
+    enablePuppet(this.material, this.pu);
+    enablePuppet(this.depth, this.pu);
     this.mesh = new THREE.Mesh(quad, this.material);
     this.mesh.castShadow = true;
     this.mesh.customDepthMaterial = this.depth;
@@ -61,9 +72,10 @@ export class InfectedSprite {
     } else {
       this.emap = this.map;
       this.material.emissiveMap = this.map;
-      this.material.emissive.set('#2c2c2c');
+      this.material.emissive.set('#161616');
     }
     this.selfLit = !a.emissive;
+    applyRig(this.pu, a.rig ?? null);
     this.material.needsUpdate = true;
     this.depth.needsUpdate = true;
   }
@@ -90,10 +102,45 @@ export class InfectedSprite {
     this.mesh.rotation.x = 0;
     this.mesh.rotation.z = 0;
     this.mesh.scale.set(a.width * scale, a.height * scale, 1);
-    if (a.frames === 1) this.procedural(name, a, scale, flip);
+    if (a.frames === 1) {
+      this.drivePuppet(dt, name, speed, flip, a);
+      this.procedural(name, a, scale, flip);
+    }
     this.hurt = Math.max(0, this.hurt - dt * 6);
-    this.material.color.setRGB(1, 1 - this.hurt * 0.6, 1 - this.hurt * 0.6);
+    // painted art already carries its own lighting; keep it from clipping under the flashlight
+    const near = Math.hypot(camera.x - pos.x, camera.z - pos.z);
+    const base = this.selfLit ? 0.62 * Math.min(1, Math.max(0.45, (near - 0.6) / 2.6)) : 1;
+    this.material.color.setRGB(base, base * (1 - this.hurt * 0.6), base * (1 - this.hurt * 0.6));
     this.material.emissiveIntensity = this.selfLit ? 1 + this.hurt : glow;
+  }
+
+  /** Feed the deformer: gait phase, limb weights, head motion. Eased so states blend. */
+  private drivePuppet(dt: number, name: AnimName, speed: number, flip: boolean, a: SpriteAnim) {
+    const u = this.pu;
+    const moving = name === 'walk' || name === 'run';
+    const ease = (cur: number, target: number, rate: number) => cur + (target - cur) * Math.min(1, dt * rate);
+    this.walkK = ease(this.walkK, moving ? (name === 'run' ? 1.35 : 1) : 0, 8);
+    this.attackK = ease(this.attackK, name === 'attack' ? Math.sin(Math.min(1, this.t * 2.2) * Math.PI) * 1.1 : 0, 18);
+    this.screamK = ease(this.screamK, name === 'scream' ? 1 : 0, 10);
+    this.gait += dt * (name === 'run' ? 10 : 5.6) * Math.max(0.5, speed) * (moving ? 1 : 0.25);
+    this.headT += dt;
+    u.uPhase.value = this.gait;
+    u.uWalk.value = this.walkK;
+    u.uArms.value = this.walkK * (name === 'run' ? 1.4 : 0.8);
+    u.uAttack.value = this.attackK;
+    u.uScream.value = this.screamK;
+    u.uBreath.value = Math.sin(this.headT * 2.1);
+    // slow look-around with an occasional twitch
+    const twitch = Math.sin(this.headT * 13) * Math.max(0, Math.sin(this.headT * 0.7) - 0.85) * 2;
+    u.uHead.value = (Math.sin(this.headT * 0.6) * 0.06 + twitch * 0.15) * (name === 'death' ? 0 : 1) + (name === 'pain' ? 0.15 : 0);
+    // the texture may be mirrored; joints are stored in image space
+    const r = a.rig;
+    if (r) {
+      const mx = (x: number) => (flip ? 1 - x : x);
+      u.uLegX.value = mx(r.legX);
+      u.uBodyX.value = mx(r.bodyX);
+      u.uHeadX.value = mx(r.headX);
+    }
   }
 
   /**
@@ -112,23 +159,23 @@ export class InfectedSprite {
         m.rotation.z = Math.sin(t * 0.9) * 0.015;
         break;
       case 'walk':
-        m.position.y += Math.abs(Math.sin(t * 5.5)) * 0.035 * h;
-        m.rotation.z = Math.sin(t * 5.5) * 0.045 * side;
+        // steps come from the puppet deformer; the body rises on each footfall
+        m.position.y += Math.abs(Math.cos(this.gait)) * 0.022 * h;
+        m.rotation.z = Math.sin(this.gait) * 0.02 * side;
         break;
       case 'run':
-        m.position.y += Math.abs(Math.sin(t * 9)) * 0.05 * h;
-        m.rotation.z = Math.sin(t * 9) * 0.06 * side;
-        m.rotation.x = -0.08;
+        m.position.y += Math.abs(Math.cos(this.gait)) * 0.04 * h;
+        m.rotation.z = Math.sin(this.gait) * 0.03 * side;
+        m.rotation.x = -0.1;
         break;
       case 'attack': {
         const k = Math.sin(Math.min(1, t * 2.2) * Math.PI);
-        m.rotation.x = -0.22 * k;
-        m.scale.multiplyScalar(1 + 0.08 * k);
+        m.rotation.x = -0.2 * k;
+        m.scale.multiplyScalar(1 + 0.06 * k);
         break;
       }
       case 'scream':
-        m.rotation.z = Math.sin(t * 40) * 0.025;
-        m.scale.multiplyScalar(1 + Math.sin(t * 6) * 0.02);
+        m.rotation.x = 0.06;
         break;
       case 'pain':
         m.rotation.x = 0.18 * Math.max(0, 1 - t * 3);

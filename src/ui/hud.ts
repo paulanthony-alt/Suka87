@@ -8,6 +8,7 @@ import { clamp, wrapAngle } from '../core/math';
 import type { Infected } from '../game/infected';
 import type { WheelEntry } from './wheel';
 import { audio } from '../core/audio';
+import { enter, exit, pop } from './anim';
 
 const el = (tag: string, cls = '', html = '') => {
   const e = document.createElement(tag);
@@ -97,6 +98,8 @@ export class Hud {
   private screamers = new Map<Infected, number>();
   private lastVals = new Map<string, string | number>();
   private proj = new THREE.Vector3();
+  private lastPrompt: unknown = null;
+  private cureDone = new Set<string>();
 
   constructor(private game: Game, parent: HTMLElement) {
     this.root = el('div', 'hud');
@@ -272,7 +275,8 @@ export class Hud {
     this.weaponChanged();
     this.inventoryChanged();
     this.banner.innerHTML = `<div class="b-small">Wave ${String(def.wave).padStart(2, '0')}</div><div class="b-big">${def.title}</div><div class="b-sub">${def.area}</div>`;
-    this.banner.classList.remove('hidden');
+    this.banner.classList.remove('hidden', 'out');
+    enter(this.banner.children, { y: 18, each: 0.09, delay: 0.25 });
     this.bannerT = 4;
   }
 
@@ -288,6 +292,7 @@ export class Hud {
     this.objBlock.classList.remove('flash');
     void this.objBlock.offsetWidth;
     this.objBlock.classList.add('flash');
+    enter([this.objLabel, this.objTitle, this.objDetail], { x: -22, each: 0.06 });
     setTimeout(() => (this.objLabel.textContent = 'Objective'), 4000);
   }
 
@@ -317,9 +322,12 @@ export class Hud {
     });
     const doneN = CURE_COMPONENTS.filter((c) => inv.has(c)).length;
     if (doneN === 4) next = '<b>All four components</b> · synthesise the cure in the virology lab';
+    const fresh = CURE_COMPONENTS.filter((c) => inv.has(c) && !this.cureDone.has(c));
+    this.cureDone = new Set(CURE_COMPONENTS.filter((c) => inv.has(c)));
     this.cure.innerHTML =
       `<div class="cure-head"><span class="cure-lbl">Suka 87 cure</span><span class="cure-n">${doneN}<i>/4</i></span></div>` +
       `<div class="cure-row">${cells.join('')}</div><div class="cure-next">${next}</div>`;
+    for (const c of fresh) pop(this.cure.querySelectorAll('.cc')[CURE_COMPONENTS.indexOf(c)], 1.3);
     this.weaponChanged();
   }
 
@@ -347,8 +355,9 @@ export class Hud {
     row.innerHTML = `${ico}<span class="fname">${name}</span><span class="famt">+${qty}</span>`;
     this.feed.prepend(row);
     while (this.feed.children.length > 5) this.feed.lastElementChild!.remove();
-    setTimeout(() => row.classList.add('fade'), 3800);
-    setTimeout(() => row.remove(), 4600);
+    enter(row, { x: -26, scale: 0.94 });
+    pop(row.querySelector('.famt'), 1.35);
+    setTimeout(() => exit(row, { x: -14, duration: 0.6 }, () => row.remove()), 3800);
   }
 
   subtitle(who: string, text: string) {
@@ -364,6 +373,7 @@ export class Hud {
     }
     this.subs.innerHTML = s.who ? `<span class="who">${s.who}</span> ${s.text}` : s.text;
     this.subs.classList.remove('hidden');
+    enter(this.subs, { y: 14 });
     this.subT = 2.2 + s.text.length * 0.055;
     if (s.who) audio.ui('radio');
   }
@@ -372,6 +382,8 @@ export class Hud {
     this.toastEl.textContent = text;
     this.toastEl.className = `toast ${tone}`;
     this.toastT = 1.8;
+    this.toastEl.classList.remove('hidden');
+    enter(this.toastEl, { y: 10, scale: 0.96 });
   }
 
   screamPulse(inf: Infected) {
@@ -518,6 +530,8 @@ export class Hud {
     const it = g.interactions.focus;
     const pr = it?.prompt();
     if (pr && g.state === 'playing' && !g.crafting.open) {
+      if (this.prompt.classList.contains('hidden') || this.lastPrompt !== it) enter(this.prompt.firstElementChild, { y: 8, scale: 0.94 });
+      this.lastPrompt = it ?? null;
       this.prompt.classList.remove('hidden');
       this.set('ptext', pr.verb, () => (this.promptText.textContent = pr.verb));
       this.set('pamt', pr.amount ?? '', () => (this.promptAmt.textContent = pr.amount ?? ''));
@@ -525,7 +539,10 @@ export class Hud {
       this.prompt.classList.toggle('disabled', !!pr.disabled);
       this.promptRing.style.strokeDashoffset = String(100 - g.interactions.holdProgress * 100);
       this.promptKey.classList.toggle('holding', g.interactions.holdProgress > 0);
-    } else this.prompt.classList.add('hidden');
+    } else {
+      this.prompt.classList.add('hidden');
+      this.lastPrompt = null;
+    }
 
     // subtitles
     if (this.subT > 0) {
@@ -540,7 +557,10 @@ export class Hud {
     this.banner.classList.toggle('muted', g.weaponWheel.isOpen || g.toolWheel.isOpen || g.crafting.open);
     if (this.bannerT > 0) {
       this.bannerT -= dt;
-      this.banner.classList.toggle('out', this.bannerT < 0.8);
+      if (this.bannerT < 0.7 && !this.banner.classList.contains('out')) {
+        this.banner.classList.add('out');
+        exit(this.banner.children, { y: -12, duration: 0.5 });
+      }
       if (this.bannerT <= 0) this.banner.classList.add('hidden');
     }
 

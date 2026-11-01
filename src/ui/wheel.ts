@@ -1,4 +1,5 @@
 import { audio } from '../core/audio';
+import { SOFT, enter, exit, pop, to } from './anim';
 
 export interface WheelEntry {
   id: string;
@@ -41,12 +42,12 @@ export class RadialWheel {
     this.root.className = `wheel wheel-${kind}`;
     this.root.innerHTML = `
       <div class="wheel-dim"></div>
-      <div class="wheel-body">
+      <div class="wheel-body"><div class="wheel-anim">
         <div class="wheel-title">${kind === 'weapon' ? 'Weapons' : 'Tools'}<span>${kind === 'weapon' ? 'Release Q to equip' : 'Release T to use'}</span></div>
         <svg class="wheel-svg" width="640" height="640" viewBox="0 0 640 640"></svg>
         <div class="wheel-nodes"></div>
         <div class="wheel-center"></div>
-      </div>`;
+      </div></div>`;
     parent.appendChild(this.root);
     this.svg = this.root.querySelector('svg') as SVGSVGElement;
     this.center = this.root.querySelector('.wheel-center') as HTMLElement;
@@ -60,13 +61,20 @@ export class RadialWheel {
     this.build();
     this.root.classList.add('open');
     this.highlight();
+    // spring the ring open, then fan the segments out clockwise from the top
+    to(this.root.querySelector('.wheel-anim'), { scale: [0.86, 1], opacity: [0, 1], rotate: [-6, 0] } as never, SOFT);
+    enter(this.root.querySelectorAll('.wheel-svg .seg'), { scale: 0.82, each: 0.022 });
+    enter(this.root.querySelectorAll('.nin'), { scale: 0.6, each: 0.022, delay: 0.03 });
   }
 
   /** Closes the wheel and returns the chosen id (or null). */
   close(): string | null {
     if (!this.isOpen) return null;
     this.isOpen = false;
-    this.root.classList.remove('open');
+    const root = this.root;
+    exit(root.querySelector('.wheel-anim'), { scale: 0.92, duration: 0.14 }, () => {
+      if (!this.isOpen) root.classList.remove('open');
+    });
     const e = this.entries[this.sel];
     return e && e.enabled && !e.current ? e.id : null;
   }
@@ -105,15 +113,14 @@ export class RadialWheel {
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       path.setAttribute('d', sector(320, 320, R_IN, R_OUT, a0, a1));
       path.setAttribute('class', `seg${e.enabled ? '' : ' off'}${e.current ? ' cur' : ''}`);
-      path.style.transitionDelay = `${i * 18}ms`;
+      path.style.transformOrigin = '320px 320px';
       this.svg.appendChild(path);
       const mid = (R_IN + R_OUT) / 2 + 6;
       const node = document.createElement('div');
       node.className = `node${e.enabled ? '' : ' off'}${e.current ? ' cur' : ''}`;
       node.style.left = `${320 + Math.sin(i * step) * mid}px`;
       node.style.top = `${320 - Math.cos(i * step) * mid}px`;
-      node.style.transitionDelay = `${i * 18}ms`;
-      node.innerHTML = `<div class="nicon">${e.iconHtml}</div><div class="nval">${e.enabled ? e.value : '—'}</div>`;
+      node.innerHTML = `<div class="nin"><div class="nicon">${e.iconHtml}</div><div class="nval">${e.enabled ? e.value : '—'}</div></div>`;
       nodes.appendChild(node);
       return { path, node };
     });
@@ -121,8 +128,15 @@ export class RadialWheel {
 
   private highlight() {
     this.segs.forEach((s, i) => {
-      s.path.classList.toggle('sel', i === this.sel);
-      s.node.classList.toggle('sel', i === this.sel);
+      const on = i === this.sel;
+      const was = s.node.classList.contains('sel');
+      s.path.classList.toggle('sel', on);
+      s.node.classList.toggle('sel', on);
+      // the selected segment pushes outwards along its bisector and its icon pops
+      const a = (i / this.segs.length) * Math.PI * 2;
+      if (on !== was) to(s.path, { x: on ? Math.sin(a) * 9 : 0, y: on ? -Math.cos(a) * 9 : 0 });
+      if (on && !was) pop(s.node.querySelector('.nin'), 1.18);
+      else if (!on && was) to(s.node.querySelector('.nin'), { scale: 1 });
     });
     const e = this.entries[this.sel];
     if (!e) {
@@ -135,5 +149,6 @@ export class RadialWheel {
       ${e.enabled && e.value ? `<div class="c-val">${e.value}</div>` : ''}
       <div class="c-detail">${e.detail}</div>
       ${e.current ? '<div class="c-tag">Equipped</div>' : ''}`;
+    enter(this.center.children, { y: 8, each: 0.025 });
   }
 }

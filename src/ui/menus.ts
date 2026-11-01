@@ -4,6 +4,7 @@ import { DIFFICULTY, type Difficulty, type Settings } from '../core/settings';
 import { INFECTED, scalingSummary, type InfectedKind } from '../data/infected';
 import { LEVELS } from '../data/levels';
 import { audio } from '../core/audio';
+import { enter } from './anim';
 
 const fmtTime = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 const acc = (st: Stats) => (st.shots ? `${Math.round((st.hits / st.shots) * 100)}%` : '—');
@@ -90,7 +91,16 @@ export class Menus {
   private screen(cls: string, html: string, back: (() => void) | null = null) {
     this.root.className = `menus on ${cls}`;
     this.root.innerHTML = html;
+    this.animateIn();
     this.back = back;
+  }
+
+  /** Staggered spring entrance for whatever screen was just rendered. */
+  private animateIn() {
+    const r = this.root;
+    enter(r.querySelectorAll('.eyebrow, h1, .area, .tag, .pobj'), { y: 22, each: 0.05 });
+    enter(r.querySelectorAll('.menu button'), { x: -24, each: 0.045, delay: 0.12 });
+    enter(r.querySelectorAll('.briefing .text, .threat, .b-right .block, .begin, .keys .krow, .sgroup, .ending .stats > div, .ending .text'), { y: 16, each: 0.035, delay: 0.15 });
   }
 
   private act(a: string, arg?: string) {
