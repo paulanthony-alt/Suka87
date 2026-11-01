@@ -393,3 +393,4 @@ kbd { min-width: calc(130px * var(--s)); font: 700 calc(18px * var(--s)) var(--d
 .fpw-mf { opacity: 0; mix-blend-mode: screen; }
 .fpw-inner.firing .fpw-mf { opacity: 1; }
 .fpw-img { position: absolute; left: 50%; bottom: 0; transform: translateX(-10%); max-height: 70%; image-rendering: auto; }
+.fpw-img.full { left: 0; top: 0; bottom: auto; width: 1920px; height: 1080px; max-height: none; transform: none; filter: brightness(.9) contrast(1.04); }

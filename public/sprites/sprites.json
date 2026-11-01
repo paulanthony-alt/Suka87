@@ -6,5 +6,13 @@
     "screamer":    { "height": 1.85, "anims": { "idle": { "file": "infected/screamer.png", "frames": 1 } } },
     "brute":       { "height": 1.8,  "anims": { "idle": { "file": "infected/brute.png", "frames": 1 } } },
     "patientZero": { "height": 1.85, "anims": { "idle": { "file": "infected/patient-zero.png", "frames": 1 } } }
+  },
+  "weapons": {
+    "axe":     { "idle": "weapons/axe.webp" },
+    "pistol":  { "idle": "weapons/pistol.webp",  "fire": "weapons/pistol_fire.webp" },
+    "smg":     { "idle": "weapons/smg.webp",     "fire": "weapons/smg_fire.webp" },
+    "rifle":   { "idle": "weapons/rifle.webp",   "fire": "weapons/rifle_fire.webp" },
+    "shotgun": { "idle": "weapons/shotgun.webp", "fire": "weapons/shotgun_fire.webp" },
+    "dmr":     { "idle": "weapons/dmr.webp",     "fire": "weapons/dmr_fire.webp" }
   }
 }
