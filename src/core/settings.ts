@@ -17,6 +17,8 @@ export interface Settings {
   showFps: boolean;
   /** render infected, pickups and the held weapon as 2D sprites */
   spriteMode: boolean;
+  /** adapt resolution/effects to hold the frame rate */
+  autoQuality: boolean;
 }
 
 const DEFAULTS: Settings = {
@@ -35,6 +37,7 @@ const DEFAULTS: Settings = {
   filmGrain: true,
   showFps: false,
   spriteMode: true,
+  autoQuality: true,
 };
 
 const KEY = 'suka87.settings.v1';

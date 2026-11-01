@@ -40,7 +40,15 @@ export class ToolSystem {
   private coughTimer = 0;
   private healOverTime = 0;
 
-  constructor(private game: Game) {}
+  private flareLights: THREE.PointLight[] = [];
+
+  constructor(private game: Game) {
+    for (let i = 0; i < 2; i++) {
+      const l = new THREE.PointLight('#ff3a24', 0, 16, 1.6);
+      this.flareLights.push(l);
+      this.group.add(l);
+    }
+  }
 
   get lure(): THREE.Vector3 | null {
     let best: Projectile | null = null;
@@ -112,9 +120,8 @@ export class ToolSystem {
     this.group.add(mesh);
     const proj: Projectile = { kind, mesh, pos, vel, fuse: kind === 'frag' ? 2.5 : 0, resting: false, life: kind === 'flare' ? 20 : kind === 'lure' ? 12 : 0, beep: 0 };
     if (kind === 'flare') {
-      proj.light = new THREE.PointLight('#ff3a24', 0, 16, 1.6);
-      proj.light.castShadow = false;
-      this.group.add(proj.light);
+      // reuse a pooled light: adding lights at runtime forces every shader to recompile
+      proj.light = this.flareLights.find((l) => !this.projectiles.some((p) => p.light === l)) ?? this.flareLights[0];
       audio.flare(pos);
     }
     this.projectiles.push(proj);
@@ -211,7 +218,7 @@ export class ToolSystem {
       const done = (pr.kind === 'frag' && pr.fuse <= 0) || (pr.kind !== 'frag' && pr.life <= 0);
       if (done) {
         pr.mesh.removeFromParent();
-        pr.light?.removeFromParent();
+        if (pr.light) pr.light.intensity = 0;
       }
       return !done;
     });
@@ -273,7 +280,7 @@ export class ToolSystem {
   clear() {
     for (const pr of this.projectiles) {
       pr.mesh.removeFromParent();
-      pr.light?.removeFromParent();
+      if (pr.light) pr.light.intensity = 0;
     }
     this.projectiles = [];
     this.clouds = [];

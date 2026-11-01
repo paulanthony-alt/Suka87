@@ -106,7 +106,7 @@ export class Game {
     this.input = new Input(this.renderer.canvas);
 
     this.flashlight = new THREE.SpotLight('#f2f4ea', 0, 34, 0.48, 0.6, 1.3);
-    this.flashlight.shadow.mapSize.set(1024, 1024);
+    this.flashlight.shadow.mapSize.set(512, 512);
     this.flashlight.shadow.camera.near = 0.2;
     this.flashlight.shadow.camera.far = 34;
     this.flashlight.shadow.bias = -0.0008;
@@ -350,6 +350,8 @@ export class Game {
     this.objectives.begin(def);
     this.weapons.reset(this.inventory.weapons.has(this.inventory.current) ? this.inventory.current : 'axe');
     this.hud.levelChanged(def);
+    this.renderer.warmup(this.scene, this.camera);
+    this.renderer.warmup(this.weapons.scene, this.weapons.camera);
     audio.setAmbience(1);
   }
 
@@ -481,11 +483,18 @@ export class Game {
 
   private frame(now: number) {
     requestAnimationFrame((t) => this.frame(t));
-    const rawDt = Math.min(0.05, (now - this.last) / 1000);
+    const frameDt = Math.min(0.1, (now - this.last) / 1000);
+    const rawDt = Math.min(0.05, frameDt);
     this.last = now;
+    if (this.state === 'playing') this.govern(frameDt);
 
     if (this.state === 'playing' || this.state === 'dead') {
-      this.update(rawDt);
+      // On slow frames run the simulation in small steps so the game doesn't drift into slow motion.
+      const steps = Math.min(3, Math.ceil(frameDt / 0.034));
+      for (let i = 0; i < steps; i++) {
+        this.update(frameDt / steps);
+        if (i < steps - 1) this.input.endFrame();
+      }
     } else if (this.state === 'title' && this.preview) {
       this.updatePreview(rawDt);
     }
@@ -496,6 +505,46 @@ export class Game {
     this.hud.frame(rawDt);
     this.fpWeapon.update();
     this.input.endFrame();
+  }
+
+  // ------------------------------------------------------------------ performance governor
+  private fpsEma = 1 / 60;
+  private governT = 0;
+  private slowT = 0;
+
+  /**
+   * Keeps the frame rate up on weaker GPUs: trims render resolution first, and if that isn't
+   * enough sheds the flashlight shadow and then bloom. Only active with Auto quality on.
+   */
+  private govern(dt: number) {
+    if (!this.settings.autoQuality) return;
+    this.fpsEma += (dt - this.fpsEma) * 0.08;
+    this.governT += dt;
+    if (this.governT < 0.75) return;
+    this.governT = 0;
+    const r = this.renderer;
+    const ms = this.fpsEma * 1000;
+    let scale = r.dynamicScale;
+    if (ms > 21) scale = Math.max(0.55, scale - (ms > 30 ? 0.12 : 0.06));
+    else if (ms < 15.5) scale = Math.min(1, scale + 0.04);
+    if (Math.abs(scale - r.dynamicScale) > 0.01) {
+      r.dynamicScale = scale;
+      r.resize();
+    }
+    // still slow at the lowest resolution: drop the expensive effects one at a time
+    this.slowT = scale <= 0.56 && ms > 24 ? this.slowT + 0.75 : 0;
+    if (this.slowT >= 3) {
+      this.slowT = 0;
+      if (this.settings.shadows) {
+        this.settings.shadows = false;
+        this.applySettings();
+        this.hud.toast('Lowered shadow quality for smoother play', 'neutral');
+      } else if (this.settings.bloom) {
+        this.settings.bloom = false;
+        this.applySettings();
+        this.hud.toast('Turned off bloom for smoother play', 'neutral');
+      }
+    }
   }
 
   private updatePreview(dt: number) {

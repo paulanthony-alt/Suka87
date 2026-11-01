@@ -209,7 +209,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 /* ------------------------------------------------------------------ wheels */
 .wheel { position: absolute; inset: 0; opacity: 0; visibility: hidden; transition: opacity .16s ease, visibility 0s linear .16s; }
 .wheel.open { opacity: 1; visibility: visible; transition: opacity .12s ease; }
-.wheel-dim { position: absolute; inset: 0; background: radial-gradient(circle at 50% 50%, rgba(5, 8, 8, .55) 0, rgba(5, 8, 8, .82) 60%); backdrop-filter: blur(3px) saturate(.6); }
+.wheel-dim { position: absolute; inset: 0; background: radial-gradient(circle at 50% 50%, rgba(5, 8, 8, .55) 0, rgba(5, 8, 8, .82) 60%); }
 .wheel-body { position: absolute; left: 50%; top: 50%; width: 640px; height: 640px; margin: -320px 0 0 -320px; transform: scale(var(--s)); }
 .wheel-anim { position: absolute; inset: 0; }
 .wheel-title { position: absolute; left: -120px; top: -40px; width: 880px; text-align: center; font: 700 18px var(--display); letter-spacing: .24em; text-transform: uppercase; color: var(--mute); }
@@ -239,7 +239,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 .c-hint { font-size: 15px; color: var(--mute); }
 
 /* ------------------------------------------------------------------ crafting */
-.craft { position: absolute; inset: 0; pointer-events: auto; background: rgba(5, 8, 8, .86); backdrop-filter: blur(6px) saturate(.5); opacity: 0; transition: opacity .18s ease; }
+.craft { position: absolute; inset: 0; pointer-events: auto; background: rgba(5, 8, 8, .92); opacity: 0; transition: opacity .18s ease; }
 .craft.in { opacity: 1; }
 .craft-inner { position: absolute; left: 50%; top: 50%; width: 1760px; height: 980px; margin: -490px 0 0 -880px; transform: scale(var(--s)); display: flex; flex-direction: column; }
 .craft header { display: flex; align-items: flex-end; justify-content: space-between; gap: 40px; padding-bottom: 18px; border-bottom: 1px solid rgba(231, 233, 226, .12); }
@@ -298,7 +298,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 .menus { position: absolute; inset: 0; pointer-events: none; }
 .menus.on { pointer-events: auto; }
 .menus button { all: unset; cursor: pointer; }
-.menus.pause, .menus.settings, .menus.controls, .menus.death { background: rgba(5, 8, 8, .78); backdrop-filter: blur(5px) saturate(.5); }
+.menus.pause, .menus.settings, .menus.controls, .menus.death { background: rgba(5, 8, 8, .84); }
 .menus.briefing-screen, .menus.victory { background: rgba(5, 8, 8, .92); }
 .menus.title { background: linear-gradient(90deg, rgba(5, 8, 8, .92) 0%, rgba(5, 8, 8, .7) 40%, rgba(5, 8, 8, .15) 100%); }
 .menus .eyebrow { font-size: 15px; }

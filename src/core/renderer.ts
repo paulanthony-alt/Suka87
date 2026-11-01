@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
 /**
@@ -20,6 +19,7 @@ const GradeShader = {
     uExposure: { value: 0 },
     uFlash: { value: 0 },
     uAspect: { value: 16 / 9 },
+    uToneExposure: { value: 1.05 },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -27,7 +27,25 @@ const GradeShader = {
   `,
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
-    uniform float uTime, uGrain, uVignette, uDamage, uLowHealth, uExposure, uFlash, uAspect;
+    uniform float uTime, uGrain, uVignette, uDamage, uLowHealth, uExposure, uFlash, uAspect, uToneExposure;
+
+    // ACES filmic tone mapping + sRGB encode, folded in here so the frame needs one less
+    // full-screen pass (matches three.js ACESFilmicToneMapping / OutputPass).
+    vec3 sukaRRTFit(vec3 v) {
+      vec3 a = v * (v + 0.0245786) - 0.000090537;
+      vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
+      return a / b;
+    }
+    vec3 sukaAces(vec3 c) {
+      const mat3 inM = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
+      const mat3 outM = mat3(vec3(1.60475, -0.10208, -0.00327), vec3(-0.53108, 1.10813, -0.07276), vec3(-0.07367, -0.00605, 1.07602));
+      c *= uToneExposure / 0.6;
+      c = outM * sukaRRTFit(inM * c);
+      return clamp(c, 0.0, 1.0);
+    }
+    vec3 sukaSRGB(vec3 c) {
+      return mix(pow(c, vec3(1.0 / 2.4)) * 1.055 - 0.055, c * 12.92, vec3(lessThanEqual(c, vec3(0.0031308))));
+    }
     varying vec2 vUv;
 
     float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -46,6 +64,7 @@ const GradeShader = {
       col.r = texture2D(tDiffuse, uv + c * ca).r;
       col.g = texture2D(tDiffuse, uv).g;
       col.b = texture2D(tDiffuse, uv - c * ca).b;
+      col = sukaSRGB(sukaAces(col));
 
       // low health: desaturate and pull to cold
       float l = dot(col, vec3(0.299, 0.587, 0.114));
@@ -80,6 +99,8 @@ export class Renderer {
   private bloom: UnrealBloomPass;
   private grade: ShaderPass;
   private scale = 1;
+  /** adaptive resolution multiplier set by the frame-rate governor */
+  dynamicScale = 1;
   width = 1;
   height = 1;
 
@@ -103,7 +124,6 @@ export class Renderer {
     this.composer.addPass(this.viewPass);
     this.bloom = new UnrealBloomPass(new THREE.Vector2(512, 512), 0.38, 0.5, 0.88);
     this.composer.addPass(this.bloom);
-    this.composer.addPass(new OutputPass());
     this.grade = new ShaderPass(GradeShader);
     this.composer.addPass(this.grade);
 
@@ -142,13 +162,23 @@ export class Renderer {
   resize() {
     this.width = window.innerWidth;
     this.height = window.innerHeight;
-    const pr = Math.min(window.devicePixelRatio, 1.5) * this.scale;
+    // cap at 1x device pixels: high-DPI rendering costs 2-4x the fill rate for little visible gain
+    const pr = Math.min(window.devicePixelRatio, 1) * this.scale * this.dynamicScale;
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(this.width, this.height);
     this.composer.setPixelRatio(pr);
     this.composer.setSize(this.width, this.height);
     this.bloom.resolution.set(this.width * pr * 0.5, this.height * pr * 0.5);
     this.fx.uAspect.value = this.width / this.height;
+  }
+
+  get bloomEnabled() {
+    return this.bloom.enabled;
+  }
+
+  /** Precompile every material in the scene so the first frames don't hitch. */
+  warmup(scene: THREE.Scene, camera: THREE.Camera) {
+    this.renderer.compile(scene, camera);
   }
 
   render(scene: THREE.Scene, camera: THREE.Camera, time: number, view?: { scene: THREE.Scene; camera: THREE.Camera }) {

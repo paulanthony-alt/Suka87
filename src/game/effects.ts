@@ -191,7 +191,7 @@ export class Effects {
       this.group.add(m);
       this.tracers.push({ mesh: m, t: 0 });
     }
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 2; i++) {
       const light = new THREE.PointLight('#ffb070', 0, 10, 2);
       this.group.add(light);
       this.flashes.push({ light, t: 0, dur: 0, peak: 0 });

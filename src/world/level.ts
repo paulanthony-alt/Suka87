@@ -840,7 +840,7 @@ export class Level {
     housing.count = pts.length;
     this.group.add(this.fixtureMesh, housing);
 
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 5; i++) {
       const light = new THREE.PointLight('#d6e6de', 0, 15, 2);
       light.castShadow = false;
       this.group.add(light);

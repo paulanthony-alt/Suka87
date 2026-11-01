@@ -256,6 +256,7 @@ export class Menus {
             ${toggle('shadows', 'Flashlight shadows')}
             ${toggle('bloom', 'Bloom')}
             ${toggle('filmGrain', 'Film grain')}
+            ${toggle('autoQuality', 'Auto quality (keeps frame rate up)')}
             ${toggle('spriteMode', '2D sprite characters')}
             ${toggle('enemyLabels', 'Infected labels')}
             ${toggle('showFps', 'Show FPS')}
