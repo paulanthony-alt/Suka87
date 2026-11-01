@@ -29,7 +29,9 @@ By default the infected, pickups and the held weapon are drawn as 2D sprites (Do
 billboards) inside the 3D hospital, so gameplay can be tested before 3D models exist. Drop your
 PNGs into `public/sprites/` and list them in `public/sprites/sprites.json`; see
 [`public/sprites/README.md`](public/sprites/README.md) for sheet layout and naming. Anything not
-listed uses a generated placeholder. Toggle **Settings → Display → 2D sprite characters** to switch
+listed uses a generated placeholder. The six infected currently use the concept paintings from
+`docs/concepts/`, cut out to transparent PNGs in `public/sprites/infected/`; single-image sprites
+get procedural bob, sway, lunge and a fall-over death. Toggle **Settings → Display → 2D sprite characters** to switch
 back to the procedural 3D models at any time; hit zones and AI are identical in both modes.
 
 ![2D sprite mode](docs/screenshot-sprites.jpg)

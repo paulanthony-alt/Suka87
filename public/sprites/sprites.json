@@ -1,0 +1,10 @@
+{
+  "infected": {
+    "shambler":    { "height": 1.8,  "anims": { "idle": { "file": "infected/shambler.png", "frames": 1 } } },
+    "runner":      { "height": 1.65, "anims": { "idle": { "file": "infected/runner.png", "frames": 1 } } },
+    "bloater":     { "height": 1.75, "anims": { "idle": { "file": "infected/bloater.png", "frames": 1 } } },
+    "screamer":    { "height": 1.85, "anims": { "idle": { "file": "infected/screamer.png", "frames": 1 } } },
+    "brute":       { "height": 1.8,  "anims": { "idle": { "file": "infected/brute.png", "frames": 1 } } },
+    "patientZero": { "height": 1.85, "anims": { "idle": { "file": "infected/patient-zero.png", "frames": 1 } } }
+  }
+}

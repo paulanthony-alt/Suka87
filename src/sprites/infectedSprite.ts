@@ -19,6 +19,8 @@ export class InfectedSprite {
   private map: THREE.Texture | null = null;
   private emap: THREE.Texture | null = null;
   private hurt = 0;
+  /** single-image art has no baked emissive; it gets a dim self-light so it reads in the dark */
+  private selfLit = false;
 
   constructor(private kind: InfectedKind | 'patientZero') {
     this.material = new THREE.MeshStandardMaterial({
@@ -57,10 +59,11 @@ export class InfectedSprite {
       this.material.emissiveMap = this.emap;
       this.material.emissive.set('#ffffff');
     } else {
-      this.emap = null;
-      this.material.emissiveMap = null;
-      this.material.emissive.set('#000000');
+      this.emap = this.map;
+      this.material.emissiveMap = this.map;
+      this.material.emissive.set('#2c2c2c');
     }
+    this.selfLit = !a.emissive;
     this.material.needsUpdate = true;
     this.depth.needsUpdate = true;
   }
@@ -82,11 +85,65 @@ export class InfectedSprite {
       tx.offset.set(flip ? (frame + 1) * w : frame * w, 0);
     }
     this.mesh.position.copy(pos);
+    this.mesh.rotation.order = 'YXZ';
     this.mesh.rotation.y = Math.atan2(camera.x - pos.x, camera.z - pos.z);
+    this.mesh.rotation.x = 0;
+    this.mesh.rotation.z = 0;
     this.mesh.scale.set(a.width * scale, a.height * scale, 1);
+    if (a.frames === 1) this.procedural(name, a, scale, flip);
     this.hurt = Math.max(0, this.hurt - dt * 6);
     this.material.color.setRGB(1, 1 - this.hurt * 0.6, 1 - this.hurt * 0.6);
-    this.material.emissiveIntensity = glow;
+    this.material.emissiveIntensity = this.selfLit ? 1 + this.hurt : glow;
+  }
+
+  /**
+   * Motion for single-pose artwork (concept paintings): bob and sway while moving, a lunge for
+   * attacks, a shudder for screams, a recoil on pain, and a backwards fall that leaves the body
+   * lying on the floor.
+   */
+  private procedural(name: AnimName, a: SpriteAnim, scale: number, flip: boolean) {
+    const m = this.mesh;
+    const t = this.t;
+    const h = a.height * scale;
+    const side = flip ? -1 : 1;
+    switch (name) {
+      case 'idle':
+        m.scale.y *= 1 + Math.sin(t * 2.2) * 0.012;
+        m.rotation.z = Math.sin(t * 0.9) * 0.015;
+        break;
+      case 'walk':
+        m.position.y += Math.abs(Math.sin(t * 5.5)) * 0.035 * h;
+        m.rotation.z = Math.sin(t * 5.5) * 0.045 * side;
+        break;
+      case 'run':
+        m.position.y += Math.abs(Math.sin(t * 9)) * 0.05 * h;
+        m.rotation.z = Math.sin(t * 9) * 0.06 * side;
+        m.rotation.x = -0.08;
+        break;
+      case 'attack': {
+        const k = Math.sin(Math.min(1, t * 2.2) * Math.PI);
+        m.rotation.x = -0.22 * k;
+        m.scale.multiplyScalar(1 + 0.08 * k);
+        break;
+      }
+      case 'scream':
+        m.rotation.z = Math.sin(t * 40) * 0.025;
+        m.scale.multiplyScalar(1 + Math.sin(t * 6) * 0.02);
+        break;
+      case 'pain':
+        m.rotation.x = 0.18 * Math.max(0, 1 - t * 3);
+        break;
+      case 'death': {
+        // topple away from the camera and settle on the floor
+        const f = Math.min(1, t * 1.6);
+        const e = f * f;
+        m.rotation.x = e * (Math.PI / 2 - 0.04);
+        m.rotation.z = e * 0.25 * side;
+        m.position.y += 0.02;
+        if (f >= 1) m.rotation.x -= Math.sin(Math.min(1, t * 1.6 - 1) * Math.PI * 3) * 0.03 * Math.max(0, 1 - (t * 1.6 - 1));
+        break;
+      }
+    }
   }
 
   /** true once a non-looping animation has shown its last frame */
