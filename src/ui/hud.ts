@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Game } from '../game/game';
 import type { LevelDef, ObjectiveDef } from '../data/levels';
-import { AMMO, CURE_COMPONENTS, ITEMS, TOOL_ORDER, type ItemId } from '../data/items';
+import { AMMO, CURE_COMPONENTS, ITEMS, RECIPES, TOOL_ORDER, type ItemId } from '../data/items';
 import { WEAPONS, type WeaponId } from '../data/weapons';
 import { icon, weaponIcon } from './icons';
 import { clamp, wrapAngle } from '../core/math';
@@ -26,6 +26,7 @@ interface Tag {
   fill: HTMLElement;
   hint: HTMLElement;
   rings: HTMLElement;
+  lead: HTMLElement;
   used: boolean;
 }
 
@@ -297,10 +298,28 @@ export class Hud {
       s.count.textContent = n ? `×${n}` : '';
       s.root.classList.toggle('empty', n === 0);
     }
+    // Cure tracker: one cell per component with ingredient progress, plus what to hunt for next.
+    let next = '';
+    const cells = CURE_COMPONENTS.map((c) => {
+      const done = inv.has(c);
+      const r = RECIPES.find((x) => x.output === c);
+      const need = r ? r.inputs.reduce((a, [, n]) => a + n, 0) : 1;
+      const got = r ? r.inputs.reduce((a, [id, n]) => a + Math.min(inv.count(id), n), 0) : 0;
+      const ready = !done && got >= need;
+      if (!done && !next && r) {
+        const missing = r.inputs.find(([id, n]) => inv.count(id) < n);
+        next = missing
+          ? `Next: <b>${ITEMS[c].name}</b> · ${ITEMS[missing[0]].name.toLowerCase()} ${inv.count(missing[0])}/${missing[1]}`
+          : `<b>${ITEMS[c].name}</b> ready to culture at a lab station`;
+      }
+      const cls = done ? 'on' : ready ? 'ready' : '';
+      return `<div class="cc ${cls}" title="${ITEMS[c].name}">${icon(ITEMS[c].icon, 28)}<div class="prog"><b style="width:${Math.round((got / need) * 100)}%"></b></div></div>`;
+    });
+    const doneN = CURE_COMPONENTS.filter((c) => inv.has(c)).length;
+    if (doneN === 4) next = '<b>All four components</b> · synthesise the cure in the virology lab';
     this.cure.innerHTML =
-      `<div class="cure-lbl">Suka 87 cure <span>${CURE_COMPONENTS.filter((c) => inv.has(c)).length}/4 components</span></div><div class="cure-row">` +
-      CURE_COMPONENTS.map((c) => `<div class="cc ${inv.has(c) ? 'on' : ''}" title="${ITEMS[c].name}">${icon(ITEMS[c].icon, 22)}</div>`).join('') +
-      '</div>';
+      `<div class="cure-head"><span class="cure-lbl">Suka 87 cure</span><span class="cure-n">${doneN}<i>/4</i></span></div>` +
+      `<div class="cure-row">${cells.join('')}</div><div class="cure-next">${next}</div>`;
     this.weaponChanged();
   }
 
@@ -517,6 +536,8 @@ export class Hud {
       this.toastT -= dt;
       this.toastEl.classList.toggle('hidden', this.toastT <= 0);
     }
+    // the wave card never sits on top of the wheels or the field kit
+    this.banner.classList.toggle('muted', g.weaponWheel.isOpen || g.toolWheel.isOpen || g.crafting.open);
     if (this.bannerT > 0) {
       this.bannerT -= dt;
       this.banner.classList.toggle('out', this.bannerT < 0.8);
@@ -646,7 +667,7 @@ export class Hud {
     const g = this.game;
     const cam = g.camera;
     const p = g.player.pos;
-    const show = g.settings.enemyLabels && g.state === 'playing' && !g.weapons.scoped;
+    const show = g.settings.enemyLabels && g.state === 'playing' && !g.weapons.scoped && !g.weaponWheel.isOpen && !g.toolWheel.isOpen;
     for (const [inf, t] of this.screamers) {
       if (t - dt <= 0 || !inf.alive) this.screamers.delete(inf);
       else this.screamers.set(inf, t - dt);
@@ -666,8 +687,13 @@ export class Hud {
     }
     const W = window.innerWidth;
     const H = window.innerHeight;
+    const s = Math.min(W / 1920, H / 1080);
+    // Screen rects already claimed by nearer infected. Farther labels are lifted above them
+    // (with a leader line back to the head) instead of drawn on top; if that would push a
+    // label too far from its owner, it's dropped.
+    const placed: { l: number; r: number; t: number; b: number }[] = [];
     let used = 0;
-    for (const { inf, d } of cands.slice(0, 7)) {
+    for (const { inf, d } of cands.slice(0, 6)) {
       this.proj.set(inf.pos.x, inf.height + 0.3, inf.pos.z).project(cam);
       if (this.proj.z > 1 || Math.abs(this.proj.x) > 1.05 || Math.abs(this.proj.y) > 1.1) continue;
       const tag = this.tags[used] ?? this.makeTag();
@@ -675,8 +701,6 @@ export class Hud {
       tag.used = true;
       const x = (this.proj.x * 0.5 + 0.5) * W;
       const y = (-this.proj.y * 0.5 + 0.5) * H;
-      tag.root.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -100%) scale(var(--s))`;
-      tag.root.style.opacity = String(clamp(1.3 - d / 30, 0.35, 1));
       const tone = inf.boss ? 'danger' : inf.def.labelColor;
       tag.root.dataset.tone = tone;
       tag.name.textContent = inf.name;
@@ -686,13 +710,31 @@ export class Hud {
       tag.bar.classList.toggle('hidden', tone === 'warning');
       tag.hint.textContent = inf.def.hint && d < 14 ? inf.def.hint : '';
       tag.rings.classList.toggle('hidden', !this.screamers.has(inf));
+
+      const w = tag.root.offsetWidth * s;
+      const h = tag.root.offsetHeight * s;
+      let yb = y;
+      for (let pass = 0; pass < 4; pass++) {
+        const hit = placed.find((q) => x - w / 2 < q.r && x + w / 2 > q.l && yb - h < q.b && yb > q.t);
+        if (!hit) break;
+        yb = hit.t - 4 * s;
+      }
+      const lift = y - yb;
+      if (lift > 150 * s) {
+        tag.root.style.opacity = '0';
+        continue;
+      }
+      placed.push({ l: x - w / 2, r: x + w / 2, t: yb - h, b: yb });
+      tag.lead.style.height = `${(lift / s).toFixed(1)}px`;
+      tag.root.style.transform = `translate(${x.toFixed(1)}px, ${yb.toFixed(1)}px) translate(-50%, -100%) scale(var(--s))`;
+      tag.root.style.opacity = String(clamp(1.3 - d / 30, 0.35, 1));
     }
     for (let i = used; i < this.tags.length; i++) this.tags[i].root.style.opacity = '0';
   }
 
   private makeTag(): Tag {
-    const root = el('div', 'tag');
-    root.innerHTML = `<div class="tname"><svg class="warn" width="16" height="16" viewBox="0 0 16 16"><path d="M8 1 L15 14 H1 Z" fill="currentColor"/><path d="M8 6 V10 M8 11.6 V12.6" stroke="#090d0d" stroke-width="1.6"/></svg><span class="n"></span> <span class="d"></span></div><div class="tbar"><div class="tfill"></div></div><div class="thint"></div><div class="rings hidden"><i></i><i></i><i></i></div>`;
+    const root = el('div', 'etag');
+    root.innerHTML = `<i class="lead"></i><div class="tname"><svg class="warn" width="16" height="16" viewBox="0 0 16 16"><path d="M8 1 L15 14 H1 Z" fill="currentColor"/><path d="M8 6 V10 M8 11.6 V12.6" stroke="#090d0d" stroke-width="1.6"/></svg><span class="n"></span> <span class="d"></span></div><div class="tbar"><div class="tfill"></div></div><div class="thint"></div><div class="rings hidden"><i></i><i></i><i></i></div>`;
     this.tagLayer.appendChild(root);
     const tag: Tag = {
       root,
@@ -702,6 +744,7 @@ export class Hud {
       fill: root.querySelector('.tfill') as HTMLElement,
       hint: root.querySelector('.thint') as HTMLElement,
       rings: root.querySelector('.rings') as HTMLElement,
+      lead: root.querySelector('.lead') as HTMLElement,
       used: false,
     };
     this.tags.push(tag);

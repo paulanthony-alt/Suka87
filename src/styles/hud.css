@@ -47,15 +47,24 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 .objective.flash .title { animation: objIn .7s cubic-bezier(.2, .7, .2, 1); }
 @keyframes objIn { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
 
-.cure { position: absolute; left: 80px; top: 158px; width: 400px; }
-.cure-lbl { font-size: 14px; font-weight: 500; color: var(--violet); }
-.cure-lbl span { color: var(--mute); font-weight: 400; margin-left: 4px; }
-.cure-row { display: flex; gap: 8px; margin-top: 6px; }
-.cure .cc { width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; color: rgba(231, 233, 226, .3); border: 1px solid rgba(169, 139, 255, .22); clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px); }
-.cure .cc.on { color: var(--fg); background: rgba(40, 30, 70, .55); border-color: var(--violet); }
+.cure { position: absolute; left: 80px; top: 162px; width: 400px; }
+.cure-head { display: flex; align-items: baseline; justify-content: space-between; width: 232px; }
+.cure-lbl { font-size: 16px; font-weight: 600; color: var(--violet); text-shadow: 0 1px 3px #000; }
+.cure-n { font: 700 22px/1 var(--display); color: var(--violet); }
+.cure-n i { font-style: normal; font-size: 16px; color: var(--mute); }
+.cure-row { display: flex; gap: 8px; margin-top: 8px; }
+.cure .cc { position: relative; width: 52px; height: 52px; display: flex; align-items: center; justify-content: center; color: rgba(231, 233, 226, .45); background: rgba(8, 12, 11, .55); border: 1px solid rgba(169, 139, 255, .3); clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px); }
+.cure .cc .prog { position: absolute; left: 6px; right: 6px; bottom: 5px; height: 3px; background: rgba(169, 139, 255, .2); }
+.cure .cc .prog b { display: block; height: 100%; background: var(--violet); }
+.cure .cc.ready { color: var(--fg); border-color: var(--amber); }
+.cure .cc.ready .prog b { background: var(--amber); }
+.cure .cc.on { color: var(--fg); background: rgba(40, 30, 70, .7); border: 1.5px solid var(--violet); box-shadow: inset 0 0 14px rgba(169, 139, 255, .35); }
+.cure .cc.on .prog { display: none; }
+.cure-next { margin-top: 8px; font-size: 15px; line-height: 1.3; color: var(--fg2); text-shadow: 0 1px 3px #000; }
+.cure-next b { font-weight: 600; color: var(--fg); }
 
 /* pickup feed */
-.feed { position: absolute; left: 80px; top: 300px; width: 420px; display: flex; flex-direction: column; gap: 10px; }
+.feed { position: absolute; left: 80px; top: 330px; width: 420px; display: flex; flex-direction: column; gap: 10px; }
 .feed-row { display: flex; align-items: center; gap: 12px; opacity: .95; animation: feedIn .35s ease-out; transition: opacity .8s ease, transform .8s ease; }
 .feed-row:not(:first-child) { opacity: .55; }
 .feed-row.fade { opacity: 0; transform: translateX(-8px); }
@@ -104,11 +113,14 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 .toast.violet { color: var(--violet); }
 .toast.amber { color: var(--amber); }
 
-.banner { position: absolute; left: 560px; top: 330px; width: 800px; text-align: center; animation: bannerIn 1s cubic-bezier(.2, .7, .2, 1); transition: opacity .8s ease; }
+/* wave card: sits in the upper third, clear of the crosshair and the horizon where infected stand */
+.banner { position: absolute; left: 460px; top: 150px; width: 1000px; padding: 26px 0 30px; text-align: center; background: radial-gradient(ellipse 50% 50% at 50% 50%, rgba(5, 8, 8, .78) 0%, rgba(5, 8, 8, .5) 55%, rgba(5, 8, 8, 0) 100%); animation: bannerIn 1s cubic-bezier(.2, .7, .2, 1); transition: opacity .8s ease; }
 .banner.out { opacity: 0; }
-.banner .b-small { font-size: 16px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); }
-.banner .b-big { font: 800 76px/1 var(--display); letter-spacing: .04em; margin-top: 8px; text-transform: uppercase; text-shadow: 0 2px 24px rgba(0, 0, 0, .8); }
-.banner .b-sub { font-size: 22px; color: var(--fg2); margin-top: 6px; }
+.banner .b-small { display: flex; align-items: center; justify-content: center; gap: 18px; font-size: 16px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); }
+.banner .b-small::before, .banner .b-small::after { content: ''; width: 56px; height: 1.5px; background: rgba(243, 176, 59, .6); }
+.banner .b-big { font: 800 88px/1 var(--display); letter-spacing: .04em; margin-top: 10px; text-transform: uppercase; text-shadow: 0 2px 24px rgba(0, 0, 0, .8); }
+.banner .b-sub { font-size: 22px; font-weight: 500; color: var(--fg2); margin-top: 8px; text-shadow: 0 1px 4px #000; }
+.banner.muted { opacity: 0 !important; transition: opacity .12s ease; }
 @keyframes bannerIn { from { opacity: 0; letter-spacing: .3em; } }
 
 /* noise + subtitles */
@@ -151,7 +163,7 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 
 /* weapon */
 .wpanel { position: absolute; right: 80px; bottom: 56px; width: 370px; display: flex; flex-direction: column; align-items: flex-end; }
-.wicon { color: var(--fg); height: 72px; }
+.wicon { color: var(--fg); height: 72px; filter: drop-shadow(0 1px 3px rgba(0, 0, 0, .7)); }
 .wname { margin-top: 6px; font: 700 28px/1 var(--display); letter-spacing: .06em; }
 .wkind { margin-top: 4px; font-size: 16px; font-weight: 500; color: var(--mute); }
 .wrow { margin-top: 6px; width: 370px; display: flex; align-items: flex-end; justify-content: space-between; min-height: 20px; }
@@ -165,20 +177,23 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); f
 .magbar { position: relative; margin-top: 12px; width: 360px; height: 12px; background: repeating-linear-gradient(90deg, rgba(231, 233, 226, .2) 0 8px, transparent 8px 12px); }
 .magbar .fill { position: absolute; left: 0; top: 0; height: 12px; background: repeating-linear-gradient(90deg, var(--fg) 0 8px, transparent 8px 12px); transition: width .08s linear; }
 
-/* enemy tags (unscaled layer) */
+/* enemy tags (unscaled layer). Own class name: `.tag` is the menu tagline. */
 .tags { position: absolute; inset: 0; overflow: hidden; }
-.tag { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; transform-origin: 50% 100%; opacity: 0; transition: opacity .2s; will-change: transform; }
-.tname { display: flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 600; white-space: nowrap; text-shadow: 0 1px 3px #000; }
+.etag { position: absolute; left: 0; top: 0; display: flex; flex-direction: column; align-items: center; transform-origin: 50% 100%; opacity: 0; transition: opacity .2s; will-change: transform; }
+.etag .lead { position: absolute; left: 50%; top: 100%; width: 1px; margin-left: -.5px; height: 0; background: rgba(231, 233, 226, .35); }
+.tname { display: flex; align-items: center; gap: 6px; padding: 1px 6px; font-size: 15px; font-weight: 600; white-space: nowrap; text-shadow: 0 1px 3px #000; background: rgba(5, 8, 8, .42); }
 .tname .d { color: var(--fg2); font-weight: 500; }
 .tname .warn { display: none; color: var(--red); }
 .tbar { margin-top: 3px; height: 3px; width: 56px; background: rgba(231, 233, 226, .25); }
 .tfill { height: 3px; width: 100%; background: var(--fg); }
-.thint { margin-top: 3px; font-size: 13px; font-weight: 500; }
-.tag[data-tone='danger'] .tname, .tag[data-tone='danger'] .tname .d, .tag[data-tone='danger'] .thint { color: var(--red); }
-.tag[data-tone='danger'] .tname .warn { display: block; }
-.tag[data-tone='danger'] .tbar { background: rgba(226, 68, 46, .28); }
-.tag[data-tone='danger'] .tfill { background: var(--red); }
-.tag[data-tone='warning'] .tname, .tag[data-tone='warning'] .tname .d, .tag[data-tone='warning'] .thint { color: var(--amber); }
+.thint { margin-top: 3px; font-size: 13px; font-weight: 500; text-shadow: 0 1px 3px #000; }
+.etag[data-tone='danger'] .tname, .etag[data-tone='danger'] .tname .d, .etag[data-tone='danger'] .thint { color: var(--red); }
+.etag[data-tone='danger'] .tname .warn { display: block; }
+.etag[data-tone='danger'] .tbar { background: rgba(226, 68, 46, .28); }
+.etag[data-tone='danger'] .tfill { background: var(--red); }
+.etag[data-tone='danger'] .lead { background: rgba(226, 68, 46, .5); }
+.etag[data-tone='warning'] .tname, .etag[data-tone='warning'] .tname .d, .etag[data-tone='warning'] .thint { color: var(--amber); }
+.etag[data-tone='warning'] .lead { background: rgba(243, 176, 59, .5); }
 .rings { position: absolute; top: 60px; left: 50%; width: 80px; height: 80px; margin-left: -40px; }
 .rings i { position: absolute; inset: 0; border: 1.5px solid var(--amber); border-radius: 50%; animation: ring 1.2s ease-out infinite; }
 .rings i:nth-child(2) { animation-delay: .4s; }
