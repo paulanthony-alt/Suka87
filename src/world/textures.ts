@@ -53,10 +53,15 @@ function normalFromHeight(h: HTMLCanvasElement, strength: number) {
 }
 
 function speckle(ctx: CanvasRenderingContext2D, rng: Rng, w: number, h: number, n: number, color: string, size: [number, number], alpha: [number, number]) {
+  // On a supersampled albedo canvas keep specks at device-pixel size and draw proportionally more
+  // of them: same overall coverage and tone, finer grain. Height canvases keep the coarser specks;
+  // per-pixel height noise turns into scattered normals that darken the whole surface.
+  const k = ctx.canvas.dataset.height ? 1 : ctx.getTransform().a || 1;
+  n = Math.round(n * k * k);
   ctx.fillStyle = color;
   for (let i = 0; i < n; i++) {
     ctx.globalAlpha = rng.range(alpha[0], alpha[1]);
-    const s = rng.range(size[0], size[1]);
+    const s = rng.range(size[0], size[1]) / k;
     ctx.fillRect(rng.next() * w, rng.next() * h, s, s);
   }
   ctx.globalAlpha = 1;
@@ -107,14 +112,173 @@ export function bloodSmear(ctx: CanvasRenderingContext2D, rng: Rng, x: number, y
 interface Built {
   map: THREE.Texture;
   normal: THREE.Texture;
+  /** optional roughness (green channel), multiplied by the material's roughness */
+  rough?: THREE.Texture;
 }
 
-function build(w: number, h: number, seed: number, albedo: Paint, height: Paint, strength: number): Built {
-  const a = canvas(w, h);
-  albedo(a.getContext('2d')!, new Rng(seed), w, h);
-  const hc = canvas(w, h);
-  height(hc.getContext('2d')!, new Rng(seed + 1), w, h);
-  return { map: toTexture(a, true), normal: toTexture(normalFromHeight(hc, strength), false) };
+interface Detail {
+  /** supersample factor: paint functions keep working in base pixels, canvases are `res`x larger */
+  res?: number;
+  /** full-resolution wear pass painted over the albedo (fine grit, grime, stains) */
+  weather?: Paint;
+  /** roughness map painter (grey = roughness); omitted = uniform */
+  rough?: Paint;
+}
+
+function build(w: number, h: number, seed: number, albedo: Paint, height: Paint, strength: number, detail: Detail = {}): Built {
+  const k = detail.res ?? 1;
+  const W = w * k;
+  const H = h * k;
+  const a = canvas(W, H);
+  const actx = a.getContext('2d')!;
+  actx.save();
+  actx.scale(k, k);
+  albedo(actx, new Rng(seed), w, h);
+  actx.restore();
+  detail.weather?.(actx, new Rng(seed + 7), W, H);
+  const hc = canvas(W, H);
+  hc.dataset.height = '1';
+  const hctx = hc.getContext('2d')!;
+  hctx.save();
+  hctx.scale(k, k);
+  height(hctx, new Rng(seed + 1), w, h);
+  hctx.restore();
+  const out: Built = { map: toTexture(a, true), normal: toTexture(normalFromHeight(hc, strength), false) };
+  if (detail.rough) {
+    const r = canvas(W / 2, H / 2);
+    detail.rough(r.getContext('2d')!, new Rng(seed + 13), W / 2, H / 2);
+    out.rough = toTexture(r, false);
+  }
+  return out;
+}
+
+// ------------------------------------------------------------------ wear passes
+// Painted at full texture resolution after the base design, so every surface gets fine grit and
+// believable dirt where real buildings collect it: floor edges, under the ceiling, at cart height.
+
+/** Fine per-pixel grain so surfaces don't read as flat colour up close. */
+function grit(ctx: CanvasRenderingContext2D, rng: Rng, w: number, h: number, density: number, strength: number) {
+  const n = Math.round(w * h * density);
+  for (let i = 0; i < n; i++) {
+    const v = rng.chance(0.5) ? 0 : 255;
+    ctx.fillStyle = `rgba(${v},${v},${v},${rng.range(0.02, strength)})`;
+    ctx.fillRect(rng.next() * w, rng.next() * h, 1, 1);
+  }
+}
+
+/** Dirt banking up from the floor line with a ragged, uneven top edge. */
+function floorGrime(ctx: CanvasRenderingContext2D, rng: Rng, w: number, h: number, height: number, rgb: string, alpha: number) {
+  const g = ctx.createLinearGradient(0, h, 0, h * (1 - height));
+  g.addColorStop(0, `rgba(${rgb},${alpha})`);
+  g.addColorStop(0.35, `rgba(${rgb},${alpha * 0.45})`);
+  g.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, h * (1 - height), w, h * height);
+  for (let i = 0; i < 70; i++) {
+    const x = rng.next() * w;
+    const r = rng.range(w * 0.01, w * 0.05);
+    const y = h - rng.range(0, h * height * 0.9);
+    const rg = ctx.createRadialGradient(x, y, 0, x, y, r);
+    rg.addColorStop(0, `rgba(${rgb},${alpha * rng.range(0.2, 0.5)})`);
+    rg.addColorStop(1, `rgba(${rgb},0)`);
+    ctx.fillStyle = rg;
+    for (const ox of [-w, 0, w]) ctx.fillRect(x + ox - r, y - r, r * 2, r * 2);
+  }
+}
+
+/** Water damage running down from the ceiling: a soft stain with a darker tide line. */
+function waterStains(ctx: CanvasRenderingContext2D, rng: Rng, w: number, h: number, n: number) {
+  for (let i = 0; i < n; i++) {
+    const x = rng.next() * w;
+    const sw = rng.range(w * 0.04, w * 0.12);
+    const len = rng.range(h * 0.15, h * 0.55);
+    const g = ctx.createLinearGradient(0, 0, 0, len);
+    g.addColorStop(0, 'rgba(62,48,26,0.42)');
+    g.addColorStop(0.8, 'rgba(62,48,26,0.16)');
+    g.addColorStop(1, 'rgba(62,48,26,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(x - sw / 2, 0);
+    ctx.lineTo(x + sw / 2, 0);
+    ctx.quadraticCurveTo(x + sw * 0.4, len * 0.7, x + rng.range(-sw, sw) * 0.2, len);
+    ctx.quadraticCurveTo(x - sw * 0.4, len * 0.7, x - sw / 2, 0);
+    ctx.fill();
+    // tide line
+    ctx.strokeStyle = 'rgba(48,34,16,0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(x, len * 0.55, sw * 0.42, len * 0.5, 0, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.stroke();
+    // a few drip runs below the stain
+    for (let d = 0; d < 3; d++) {
+      const dx = x + rng.range(-sw, sw) * 0.4;
+      const dl = rng.range(h * 0.05, h * 0.25);
+      const dg = ctx.createLinearGradient(0, len * 0.8, 0, len * 0.8 + dl);
+      dg.addColorStop(0, 'rgba(50,38,20,0.3)');
+      dg.addColorStop(1, 'rgba(50,38,20,0)');
+      ctx.fillStyle = dg;
+      ctx.fillRect(dx, len * 0.8, rng.range(1.5, 3.5), dl);
+    }
+  }
+}
+
+/** Horizontal scuffs and gouges from trolleys and beds, between two heights (0 = floor, 1 = ceiling). */
+function scuffs(ctx: CanvasRenderingContext2D, rng: Rng, w: number, h: number, n: number, from: number, to: number) {
+  for (let i = 0; i < n; i++) {
+    const y = h * (1 - rng.range(from, to));
+    const x = rng.next() * w;
+    const len = rng.range(w * 0.01, w * 0.07);
+    ctx.strokeStyle = rng.chance(0.75) ? `rgba(14,14,12,${rng.range(0.12, 0.35)})` : `rgba(200,205,200,${rng.range(0.06, 0.16)})`;
+    ctx.lineWidth = rng.range(1, 3);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x + len, y + rng.range(-3, 3));
+    ctx.stroke();
+  }
+}
+
+/** Standard wear for a wall: grit, grime at the floor, ceiling stains, cart scuffs. */
+function wallWear(opts: { grime: number; stains: number; scuffs: number; grimeRgb?: string }): Paint {
+  return (ctx, rng, w, h) => {
+    grit(ctx, rng, w, h, 0.06, 0.08);
+    floorGrime(ctx, rng, w, h, opts.grime, opts.grimeRgb ?? '18,20,16', 0.55);
+    waterStains(ctx, rng, w, h, opts.stains);
+    scuffs(ctx, rng, w, h, opts.scuffs, 0.08, 0.32);
+  };
+}
+
+/**
+ * Roughness: a base value with glossy (wet / polished) and dull (dusty) patches.
+ * Values are 0-255 grey; the material roughness multiplies them.
+ */
+function roughPatches(base: number, wet: number, dusty: number, nWet: number, nDust: number): Paint {
+  return (ctx, rng, w, h) => {
+    ctx.fillStyle = `rgb(${base},${base},${base})`;
+    ctx.fillRect(0, 0, w, h);
+    const patch = (n: number, v: number, r: [number, number], a: [number, number]) => {
+      for (let i = 0; i < n; i++) {
+        const x = rng.next() * w;
+        const y = rng.next() * h;
+        const rad = rng.range(r[0], r[1]) * w;
+        for (const ox of [-w, 0, w]) for (const oy of [-h, 0, h]) {
+          const g = ctx.createRadialGradient(x + ox, y + oy, 0, x + ox, y + oy, rad);
+          g.addColorStop(0, `rgba(${v},${v},${v},${rng.range(a[0], a[1])})`);
+          g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+          ctx.fillStyle = g;
+          ctx.fillRect(x + ox - rad, y + oy - rad, rad * 2, rad * 2);
+        }
+      }
+    };
+    patch(nDust, dusty, [0.05, 0.2], [0.3, 0.7]);
+    patch(nWet, wet, [0.04, 0.16], [0.6, 0.95]);
+    // per-pixel variation so highlights break up instead of forming clean blobs
+    const n = Math.round(w * h * 0.1);
+    for (let i = 0; i < n; i++) {
+      const v = rng.chance(0.5) ? 0 : 255;
+      ctx.fillStyle = `rgba(${v},${v},${v},${rng.range(0.02, 0.1)})`;
+      ctx.fillRect(rng.next() * w, rng.next() * h, 1, 1);
+    }
+  };
 }
 
 // ------------------------------------------------------------------ surfaces
@@ -159,7 +323,7 @@ export function concreteWall(seed = 11): Built {
         ctx.fill();
       }
     }
-  }, 2.2);
+  }, 2.2, { res: 2, weather: wallWear({ grime: 0.3, stains: 5, scuffs: 40, grimeRgb: '16,18,14' }), rough: roughPatches(240, 150, 255, 4, 6) });
 }
 
 export function concreteFloor(seed = 21): Built {
@@ -202,7 +366,15 @@ export function concreteFloor(seed = 21): Built {
     ctx.moveTo(w / 2, 0); ctx.lineTo(w / 2, h);
     ctx.moveTo(0, h / 2); ctx.lineTo(w, h / 2);
     ctx.stroke();
-  }, 2.5);
+  }, 2.5, {
+    res: 2,
+    weather: (ctx, rng, w, h) => {
+      grit(ctx, rng, w, h, 0.09, 0.1);
+      // oil and water stains with darker rims
+      blotches(ctx, rng, w, h, 6, '10,12,10', [w * 0.02, w * 0.08], [0.25, 0.5]);
+    },
+    rough: roughPatches(235, 70, 255, 5, 8),
+  });
 }
 
 /** Painted hospital corridor wall: dark lower wainscot, light upper paint, crash rail at ~1 m. */
@@ -241,7 +413,7 @@ export function wardWall(seed = 31): Built {
     ctx.fillRect(0, ry - 10, w, 14);
     ctx.fillStyle = '#c0c0c0';
     ctx.fillRect(0, h - 18, w, 18);
-  }, 3);
+  }, 3, { res: 2, weather: wallWear({ grime: 0.22, stains: 3, scuffs: 70 }), rough: roughPatches(190, 120, 235, 3, 4) });
 }
 
 /** Morgue / wet-room ceramic tiles. */
@@ -287,7 +459,24 @@ export function tileWall(seed = 41): Built {
       ctx.fillRect(i * s - 1.5, 0, 3, h);
       ctx.fillRect(0, i * s - 1.5, w, 3);
     }
-  }, 2.4);
+  }, 2.4, {
+    res: 2,
+    weather: (ctx, rng, w, h) => {
+      grit(ctx, rng, w, h, 0.04, 0.07);
+      floorGrime(ctx, rng, w, h, 0.25, '24,28,22', 0.5);
+      waterStains(ctx, rng, w, h, 4);
+    },
+    // glazed tiles are glossy, grout lines are not
+    rough: (ctx, rng, w, h) => {
+      roughPatches(70, 40, 160, 3, 5)(ctx, rng, w, h);
+      const s = w / n;
+      ctx.fillStyle = 'rgb(235,235,235)';
+      for (let i = 0; i <= n; i++) {
+        ctx.fillRect(i * s - 1, 0, 2, h);
+        ctx.fillRect(0, i * s - 1, w, 2);
+      }
+    },
+  });
 }
 
 /** Clean modular wall panels for the research wing. */
@@ -316,7 +505,7 @@ export function labWall(seed = 51): Built {
     const pw = w / 4;
     for (let i = 0; i <= 4; i++) ctx.fillRect(i * pw - 3, 0, 6, h);
     ctx.fillRect(0, h * 0.62, w, 6);
-  }, 2);
+  }, 2, { res: 2, weather: wallWear({ grime: 0.15, stains: 1, scuffs: 30, grimeRgb: '40,44,42' }), rough: roughPatches(170, 110, 220, 2, 3) });
 }
 
 /** Sheet vinyl with a faint tile print (wards, corridors). */
@@ -361,7 +550,30 @@ export function vinylFloor(seed = 61): Built {
       ctx.fillRect(0, i * s - 2, w, 4);
     }
     speckle(ctx, rng, w, h, 3000, '#000', [1, 2], [0.05, 0.2]);
-  }, 1.8);
+  }, 1.8, {
+    res: 2,
+    weather: (ctx, rng, w, h) => {
+      grit(ctx, rng, w, h, 0.08, 0.09);
+      // heel marks and grey wheel tracks
+      for (let i = 0; i < 60; i++) {
+        ctx.fillStyle = `rgba(10,10,10,${rng.range(0.15, 0.4)})`;
+        ctx.beginPath();
+        ctx.ellipse(rng.next() * w, rng.next() * h, rng.range(2, 9), rng.range(1, 3), rng.range(0, Math.PI), 0, Math.PI * 2);
+        ctx.fill();
+      }
+      for (let i = 0; i < 4; i++) {
+        ctx.strokeStyle = `rgba(20,22,20,${rng.range(0.08, 0.16)})`;
+        ctx.lineWidth = rng.range(3, 7);
+        const x = rng.next() * w;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.bezierCurveTo(x + rng.range(-80, 80), h * 0.3, x + rng.range(-80, 80), h * 0.7, x + rng.range(-40, 40), h);
+        ctx.stroke();
+      }
+    },
+    // polished sheet vinyl with wet patches and dull dusty areas
+    rough: roughPatches(150, 35, 230, 6, 8),
+  });
 }
 
 export function epoxyFloor(seed = 71): Built {
@@ -383,7 +595,7 @@ export function epoxyFloor(seed = 71): Built {
     ctx.fillStyle = '#808080';
     ctx.fillRect(0, 0, w, h);
     speckle(ctx, rng, w, h, 4000, '#000', [1, 2], [0.05, 0.15]);
-  }, 1);
+  }, 1, { res: 2, weather: (ctx, rng, w, h) => grit(ctx, rng, w, h, 0.05, 0.07), rough: roughPatches(120, 40, 200, 4, 4) });
 }
 
 export function ceilingTiles(seed = 81): Built {
@@ -416,7 +628,7 @@ export function ceilingTiles(seed = 81): Built {
       ctx.fillRect(i * s - 3, 0, 6, h);
       ctx.fillRect(0, i * s - 3, w, 6);
     }
-  }, 2);
+  }, 2, { res: 2, weather: (ctx, rng, w, h) => { grit(ctx, rng, w, h, 0.1, 0.1); waterStains(ctx, rng, w, h, 2); } });
 }
 
 // ------------------------------------------------------------------ props & characters

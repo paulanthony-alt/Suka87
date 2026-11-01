@@ -80,6 +80,14 @@ const PROP_CHARS = 'gbctksmopulfvrqwxy';
 
 type Buf = { pos: number[]; nor: number[]; uv: number[]; col: number[]; idx: number[] };
 
+interface TrimFace {
+  style: SurfaceStyle;
+  x: number;
+  y: number;
+  dx: number;
+  dy: number;
+}
+
 function quad(b: Buf, v: number[][], n: number[], uvs: number[][], shade: number[]) {
   const base = b.pos.length / 3;
   for (let i = 0; i < 4; i++) {
@@ -180,7 +188,8 @@ export class Level {
       }
     }
 
-    this.hemi = new THREE.HemisphereLight('#7f9f97', '#0a0d0c', this.powered ? 0.32 : 0.14);
+    // soft bounce light so unlit areas fall to deep shadow rather than a flat void
+    this.hemi = new THREE.HemisphereLight('#8aa8a0', '#1a1612', this.powered ? 0.42 : 0.2);
     this.group.add(this.hemi);
 
     this.buildSurfaces();
@@ -419,7 +428,7 @@ export class Level {
 
   setPowered(on: boolean) {
     this.powered = on;
-    this.hemi.intensity = on ? 0.32 : 0.14;
+    this.hemi.intensity = on ? 0.42 : 0.2;
   }
 
   // ------------------------------------------------------------------ per-frame
@@ -474,7 +483,8 @@ export class Level {
         slot.fixture = f;
         slot.fade = 0;
         slot.light.position.copy(f.pos).setY(WALL_H - 0.35);
-        slot.light.color.set(f.kind === 'emergency' ? '#ff3a24' : '#d6e6de');
+        // fluorescent tubes vary tube to tube: some cool, some warm and tired
+        slot.light.color.set(f.kind === 'emergency' ? '#ff3a24' : f.phase % 3 < 1 ? '#e8e2d0' : f.phase % 3 < 2 ? '#d6e6de' : '#cfe0e6');
       }
     }
     for (const l of this.lights) {
@@ -486,7 +496,7 @@ export class Level {
       }
       const base = f.kind === 'emergency' ? 8 : 24;
       l.light.intensity = base * f.level * l.fade;
-      l.light.distance = f.kind === 'emergency' ? 10 : 18;
+      l.light.distance = f.kind === 'emergency' ? 11 : 20;
     }
   }
 
@@ -512,6 +522,7 @@ export class Level {
       return 1 - n * 0.16;
     };
 
+    const trim: TrimFace[] = [];
     for (let y = 0; y < this.H; y++) {
       for (let x = 0; x < W; x++) {
         if (this.solid[y * W + x]) continue;
@@ -536,6 +547,7 @@ export class Level {
             continue;
           }
           this.wallFace(get('wall:' + style), x, y, dx, dy, 0, ceil);
+          if (!isDoor) trim.push({ style, x, y, dx, dy });
         }
       }
     }
@@ -558,6 +570,74 @@ export class Level {
       mesh.userData.surface = kind;
       this.group.add(mesh);
       this.hitMeshes.push(mesh);
+    }
+    this.buildTrim(trim);
+  }
+
+  /**
+   * Real geometry for the details that sell a hospital: rubber skirting, vinyl crash rails on
+   * brackets in wards and labs, and conduit runs along the top of the basement walls. One merged
+   * mesh per material.
+   */
+  private buildTrim(faces: TrimFace[]) {
+    const M = materials();
+    const geos = new Map<THREE.Material, THREE.BufferGeometry[]>();
+    const push = (m: THREE.Material, g: THREE.BufferGeometry) => {
+      let l = geos.get(m);
+      if (!l) geos.set(m, (l = []));
+      l.push(g);
+    };
+    const m4 = new THREE.Matrix4();
+    for (const f of faces) {
+      const alongZ = f.dx !== 0;
+      // centre of the wall face, and the direction pointing back into the room
+      const cx = f.x * TILE + TILE / 2 + (f.dx * TILE) / 2;
+      const cz = f.y * TILE + TILE / 2 + (f.dy * TILE) / 2;
+      const nx = -f.dx;
+      const nz = -f.dy;
+      /** box flush against the wall: `len` along it, `h` tall, `t` proud of the surface, `off` gap from it */
+      const strip = (m: THREE.Material, y: number, h: number, t: number, len = TILE, along = 0, off = 0) => {
+        const g = alongZ ? new THREE.BoxGeometry(t, h, len) : new THREE.BoxGeometry(len, h, t);
+        const px = cx + nx * (off + t / 2) + (alongZ ? 0 : along);
+        const pz = cz + nz * (off + t / 2) + (alongZ ? along : 0);
+        push(m, g.applyMatrix4(m4.makeTranslation(px, y, pz)));
+      };
+      const pipe = (r: number, y: number, off: number) => {
+        const g = new THREE.CylinderGeometry(r, r, TILE, 10, 1, true);
+        g.rotateZ(Math.PI / 2);
+        if (alongZ) g.rotateY(Math.PI / 2);
+        push(M.conduit, g.applyMatrix4(m4.makeTranslation(cx + nx * off, y, cz + nz * off)));
+      };
+      switch (f.style) {
+        case 'ward':
+          strip(M.skirting, 0.06, 0.12, 0.016);
+          strip(M.railWard, 1.0, 0.14, 0.05, TILE, 0, 0.03);
+          for (const a of [-0.55, 0.55]) strip(M.bracket, 0.99, 0.07, 0.03, 0.05, a);
+          break;
+        case 'lab':
+          strip(M.skirting, 0.05, 0.1, 0.012);
+          strip(M.railLab, 0.95, 0.1, 0.04, TILE, 0, 0.025);
+          for (const a of [-0.55, 0.55]) strip(M.bracket, 0.95, 0.05, 0.025, 0.04, a);
+          break;
+        case 'tile':
+          // coved base in wet rooms
+          strip(M.skirting, 0.04, 0.08, 0.01);
+          break;
+        case 'concrete':
+          strip(M.skirting, 0.05, 0.1, 0.03);
+          pipe(0.045, WALL_H - 0.28, 0.1);
+          pipe(0.025, WALL_H - 0.44, 0.075);
+          strip(M.bracket, WALL_H - 0.33, 0.24, 0.13, 0.04, 0.3);
+          break;
+      }
+    }
+    for (const [m, list] of geos) {
+      const merged = mergeGeometries(list, false);
+      list.forEach((g) => g.dispose());
+      if (!merged) continue;
+      const mesh = new THREE.Mesh(merged, m);
+      mesh.receiveShadow = true;
+      this.group.add(mesh);
     }
   }
 

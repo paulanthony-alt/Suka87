@@ -31,21 +31,30 @@ export interface Materials {
   door: THREE.MeshStandardMaterial;
   doorLocked: THREE.MeshStandardMaterial;
   blood: THREE.MeshStandardMaterial;
+  /** wall trim: rubber skirting, vinyl crash rails, painted conduit */
+  skirting: THREE.MeshStandardMaterial;
+  railWard: THREE.MeshStandardMaterial;
+  railLab: THREE.MeshStandardMaterial;
+  bracket: THREE.MeshStandardMaterial;
+  conduit: THREE.MeshStandardMaterial;
 }
 
 let lib: Materials | null = null;
 
-function std(map: { map: THREE.Texture; normal: THREE.Texture }, rough: number, repeat = 1, metal = 0, normalScale = 1) {
+function std(map: { map: THREE.Texture; normal: THREE.Texture; rough?: THREE.Texture }, rough: number, repeat = 1, metal = 0, normalScale = 1) {
   const m = new THREE.MeshStandardMaterial({
     map: map.map,
     normalMap: map.normal,
-    roughness: rough,
+    // with a roughness map the map carries the absolute values (wet patches, dusty areas)
+    roughnessMap: map.rough ?? null,
+    roughness: map.rough ? 1 : rough,
     metalness: metal,
   });
   m.normalScale.set(normalScale, normalScale);
   if (repeat !== 1) {
     m.map!.repeat.set(repeat, repeat);
     m.normalMap!.repeat.set(repeat, repeat);
+    m.roughnessMap?.repeat.set(repeat, repeat);
   }
   return m;
 }
@@ -96,6 +105,11 @@ export function materials(): Materials {
     door: std(T.brushedMetal(97, '#56625e'), 0.55, 1, 0.5),
     doorLocked: std(T.brushedMetal(98, '#6a4a2a'), 0.6, 1, 0.5),
     blood: new THREE.MeshStandardMaterial({ color: '#4a0808', roughness: 0.3 }),
+    skirting: new THREE.MeshStandardMaterial({ color: '#1b1f1e', roughness: 0.55 }),
+    railWard: new THREE.MeshStandardMaterial({ color: '#5f6b67', roughness: 0.55 }),
+    railLab: new THREE.MeshStandardMaterial({ color: '#9aa39f', roughness: 0.45 }),
+    bracket: new THREE.MeshStandardMaterial({ color: '#5c6562', roughness: 0.4, metalness: 0.7 }),
+    conduit: std(T.brushedMetal(99, '#6f7a76'), 0.5, 1, 0.6),
   };
   return lib;
 }
