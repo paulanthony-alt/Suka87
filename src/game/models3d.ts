@@ -5,6 +5,8 @@ import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { InfectedKind } from '../data/infected';
 import type { WeaponId } from '../data/weapons';
 import { pick, rand } from '../core/math';
+import { BUMP, NOISE } from './shaderChunks';
+import { buildInfectedHead, type HeadUniforms } from './infectedHead';
 
 /**
  * Real 3D assets: one rigged humanoid (Quaternius Universal Animation Library, CC0) shared by every
@@ -84,26 +86,6 @@ function boneRegion(name: string) {
   return 1;
 }
 
-const NOISE = /* glsl */ `
-float h3(vec3 p){p=fract(p*0.3183099+.1);p*=17.0;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
-float n3(vec3 x){vec3 i=floor(x);vec3 f=fract(x);f=f*f*(3.0-2.0*f);
-return mix(mix(mix(h3(i),h3(i+vec3(1,0,0)),f.x),mix(h3(i+vec3(0,1,0)),h3(i+vec3(1,1,0)),f.x),f.y),
-mix(mix(h3(i+vec3(0,0,1)),h3(i+vec3(1,0,1)),f.x),mix(h3(i+vec3(0,1,1)),h3(i+vec3(1,1,1)),f.x),f.y),f.z);}
-float fbm(vec3 p){float a=.5,s=0.;for(int i=0;i<4;i++){s+=a*n3(p);p*=2.03;a*=.5;}return s;}
-`;
-
-/** Screen-space bump from a procedural height (same maths as three's bump map). */
-const BUMP = /* glsl */ `
-vec3 sukaBump(vec3 pos, vec3 n, float h, float k) {
-  vec3 sx = dFdx(pos), sy = dFdy(pos);
-  vec3 r1 = cross(sy, n), r2 = cross(n, sx);
-  float det = dot(sx, r1);
-  vec2 dh = vec2(dFdx(h), dFdy(h)) * k;
-  vec3 g = sign(det) * (dh.x * r1 + dh.y * r2);
-  return normalize(abs(det) * n - g);
-}
-`;
-
 /** Shared so one call re-tints every infected as the strain mutates. */
 const mutation = { value: 0.3 };
 export function setModelMutation(level: number) {
@@ -167,15 +149,18 @@ function infectedMaterial(bones: THREE.Bone[], look: Look, seed: number, boss: b
     uHair: { value: look.hair },
     uGlow: { value: boss ? 2 : 1 },
     uMut: mutation,
+    uTear: { value: rand(0.4, 1) },
+    uHeadJ: { value: bones.findIndex((b) => b.name === 'Head') },
   };
+  m.userData.u = U;
   m.onBeforeCompile = (s) => {
     Object.assign(s.uniforms, U);
     s.vertexShader = s.vertexShader
       .replace(
         '#include <common>',
         /* glsl */ `#include <common>
-uniform float uRegion[80]; uniform float uSleeve; uniform float uGown;
-varying vec4 vReg; varying vec3 vObj;
+uniform float uRegion[80]; uniform float uSleeve; uniform float uGown; uniform float uHeadJ;
+varying vec4 vReg; varying vec3 vObj; varying float vHeadW;
 vec4 regOf(float j){ float r = uRegion[int(j)];
   if (r > 3.5 && r < 4.5) r = uSleeve > 0.5 ? 1.0 : 0.0;
   if (r > 4.5) r = uGown > 0.5 ? 1.0 : 2.0;
@@ -185,20 +170,23 @@ vec4 regOf(float j){ float r = uRegion[int(j)];
         '#include <skinbase_vertex>',
         /* glsl */ `#include <skinbase_vertex>
 vReg = regOf(skinIndex.x)*skinWeight.x + regOf(skinIndex.y)*skinWeight.y + regOf(skinIndex.z)*skinWeight.z + regOf(skinIndex.w)*skinWeight.w;
-vObj = position;`,
+vObj = position;
+vHeadW = dot(vec4(equal(skinIndex, vec4(uHeadJ))), skinWeight);`,
       );
     s.fragmentShader = s.fragmentShader
       .replace(
         '#include <common>',
         /* glsl */ `#include <common>
-uniform vec3 uSkin, uShirt, uPants, uShoes, uHairCol; uniform float uSeed, uBlood, uHair, uGlow, uMut;
-varying vec4 vReg; varying vec3 vObj;
+uniform vec3 uSkin, uShirt, uPants, uShoes, uHairCol; uniform float uSeed, uBlood, uHair, uGlow, uMut, uTear;
+varying vec4 vReg; varying vec3 vObj; varying float vHeadW;
 ${NOISE}
 ${BUMP}`,
       )
       .replace(
         '#include <color_fragment>',
         /* glsl */ `#include <color_fragment>
+// the mannequin head is replaced by the sculpted one (infectedHead.ts)
+if (vHeadW > 0.5) discard;
 vec4 rw = pow(max(vReg, 0.0), vec4(2.0)); rw /= max(1e-3, rw.x+rw.y+rw.z+rw.w);
 vec3 P = vObj * 6.0 + uSeed;
 float fab = fbm(P * 7.0);
@@ -207,29 +195,29 @@ skin = mix(skin, skin * vec3(0.55, 0.5, 0.7), smoothstep(0.55, 0.75, fbm(P * 1.7
 vec3 col = skin * rw.x + uShirt * (0.8 + 0.35 * fab) * rw.y + uPants * (0.8 + 0.35 * fab) * rw.z + uShoes * (0.85 + 0.2 * fab) * rw.w;
 float grime = smoothstep(0.7, 0.0, vObj.y) * (0.4 + 0.6 * fbm(P * 2.5));
 col *= 1.0 - grime * 0.55;
-float streak = smoothstep(0.06 + 0.05 * fbm(P * 3.0), 0.0, abs(vObj.x + 0.02 * sin(vObj.y * 30.0 + uSeed))) * smoothstep(1.66, 1.6, vObj.y) * smoothstep(1.05, 1.45, vObj.y) * smoothstep(0.0, 0.06, vObj.z + 0.02);
+float streak = smoothstep(0.03 + 0.03 * fbm(P * 3.0), 0.0, abs(vObj.x + 0.025 * sin(vObj.y * 30.0 + uSeed))) * smoothstep(1.66, 1.6, vObj.y) * smoothstep(1.05, 1.45, vObj.y) * smoothstep(0.0, 0.06, vObj.z + 0.02);
 float splat = smoothstep(0.66, 0.78, fbm(P * 1.1 + 7.0));
 float hands = rw.x * smoothstep(1.05, 1.3, abs(vObj.x)) * 0.8;
 float wet = clamp(streak * 1.2 + splat + hands, 0.0, 1.0) * uBlood;
-wet *= smoothstep(0.3, 0.6, fbm(P * 5.0 + 11.0) + 0.2);
+wet *= smoothstep(0.42, 0.55, fbm(P * 5.0 + 11.0) + 0.15);
 col = mix(col, vec3(0.16, 0.012, 0.015), wet * 0.9);
-vec2 ef = vec2(abs(vObj.x) - 0.033, vObj.y - 1.705);
-float face = rw.x * step(1.58, vObj.y) * smoothstep(0.02, 0.07, vObj.z);
-float socket = face * smoothstep(0.03, 0.012, length(ef * vec2(1.0, 1.4)));
-col = mix(col, vec3(0.05, 0.03, 0.04), socket * 0.85);
-float mouth = face * smoothstep(0.012, 0.0, abs(vObj.y - 1.625 - 0.006 * sin(vObj.x * 90.0))) * smoothstep(0.035, 0.02, abs(vObj.x));
-col = mix(col, vec3(0.12, 0.0, 0.01), mouth);
-float hair = rw.x * uHair * step(1.6, vObj.y) * smoothstep(1.735, 1.76, vObj.y + 0.06 * smoothstep(0.03, -0.06, vObj.z) + 0.02 * n3(P * 8.0));
-hair *= smoothstep(0.25, 0.5, fbm(P * 6.0) + 0.1);
-col = mix(col, uHairCol * (0.6 + 0.6 * fbm(P * 30.0)), hair);
+// torn clothing: ragged holes show skin with raw, bloody wounds and frayed dark edges
+float tearN = fbm(P * 2.2 + 13.0) + 0.08 * n3(vObj * 120.0);
+float tear = (1.0 - rw.x) * smoothstep(0.66, 0.68, tearN) * uTear;
+float fray = (1.0 - rw.x) * smoothstep(0.62, 0.66, tearN) * (1.0 - tear) * uTear;
+float wound = tear * smoothstep(0.7, 0.76, tearN);
+vec3 under = mix(skin, vec3(0.2, 0.02, 0.025), smoothstep(0.0, 1.0, wound) * 0.85);
+col = mix(col, col * 0.45, fray);
+col = mix(col, under, tear);
 diffuseColor.rgb = col;
-float clothW = 1.0 - rw.x;
-float bumpH = clothW * (0.6 * n3(vObj * 160.0) + 0.4 * fbm(vObj * 45.0)) * (1.0 - wet) + rw.x * fbm(P * 5.0) * 0.6;`,
+float clothW = (1.0 - rw.x) * (1.0 - tear);
+float folds = fbm(vec3(vObj.x * 14.0, vObj.y * 5.0, vObj.z * 14.0));
+float bumpH = clothW * (0.35 * n3(vObj * 160.0) + 0.25 * fbm(vObj * 45.0) + 0.5 * folds) * (1.0 - wet) + (1.0 - clothW) * fbm(P * 5.0) * 0.6 - fray * 0.6 + wound * 0.8;`,
       )
       .replace(
         '#include <roughnessmap_fragment>',
         /* glsl */ `#include <roughnessmap_fragment>
-roughnessFactor = mix(0.85, 0.32, wet) - rw.x * 0.18;`,
+roughnessFactor = mix(0.85, 0.32, max(wet, wound)) - (1.0 - clothW) * 0.2;`,
       )
       .replace(
         '#include <normal_fragment_maps>',
@@ -239,9 +227,8 @@ normal = sukaBump(-vViewPosition, normal, bumpH, 0.006);`,
       .replace(
         '#include <emissivemap_fragment>',
         /* glsl */ `#include <emissivemap_fragment>
-float vn = (1.0 - smoothstep(0.0, 0.025, abs(fbm(P * 2.2) - 0.5))) * smoothstep(0.4, 0.6, fbm(P * 0.9 + 5.0));
-totalEmissiveRadiance += vec3(0.55, 0.4, 1.0) * vn * rw.x * uMut * 0.6 * uGlow * (1.0 - hair);
-totalEmissiveRadiance += vec3(0.85, 0.75, 1.0) * socket * smoothstep(0.012, 0.004, length(ef)) * (1.5 + 3.0 * uMut) * uGlow;`,
+float vn = (1.0 - smoothstep(0.0, 0.012, abs(fbm(P * 2.2) - 0.5))) * smoothstep(0.45, 0.65, fbm(P * 0.9 + 5.0));
+totalEmissiveRadiance += vec3(0.5, 0.35, 0.9) * vn * (1.0 - clothW) * uMut * 0.3 * uGlow;`,
       );
   };
   return m;
@@ -292,7 +279,7 @@ function contactShadowMaterial() {
   return blobMat;
 }
 
-const pustuleMat = new THREE.MeshStandardMaterial({ color: '#5a4872', emissive: '#a98bff', emissiveIntensity: 0.6, roughness: 0.2 });
+const pustuleMat = new THREE.MeshStandardMaterial({ color: '#4a3a40', emissive: '#8a6bd0', emissiveIntensity: 0.35, roughness: 0.3 });
 const pustuleGeo = new THREE.SphereGeometry(1, 12, 10);
 const _tmpV = new THREE.Vector3();
 
@@ -325,6 +312,9 @@ export class InfectedModel {
       // animated poses reach past the bind-pose bounds
       m.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.4);
     }
+    const headBone = this.bones.get('Head');
+    const hi = skinned[0].skeleton.bones.findIndex((b) => b.name === 'Head');
+    if (headBone && hi >= 0) buildInfectedHead(headBone, skinned[0].skeleton.boneInverses[hi], mat.userData.u as HeadUniforms);
     this.shape(kind, boss);
     this.blob = new THREE.Mesh(blobGeo, contactShadowMaterial());
     this.blob.rotation.x = -Math.PI / 2;
@@ -361,7 +351,9 @@ export class InfectedModel {
         this.root.updateMatrixWorld(true);
         const world = parent.getWorldPosition(new THREE.Vector3()).add(new THREE.Vector3(x, y, z));
         p.position.copy(parent.worldToLocal(world));
-        p.scale.setScalar(r);
+        // bones are scaled for the swollen body: undo that so sores keep their size
+        const ws = parent.getWorldScale(new THREE.Vector3());
+        p.scale.set((r * 0.6) / ws.x, (r * 0.6) / ws.y, (r * 0.45) / ws.z);
         parent.add(p);
       }
     } else if (kind === 'brute' || boss) {
