@@ -53,6 +53,7 @@ export class Director {
     const inf = new Infected(kind, pos, g.infCtx, opts);
     g.infected.push(inf);
     g.scene.add(inf.rig.root, inf.sprite.mesh);
+    if (inf.model) g.scene.add(inf.model.root);
     return inf;
   }
 

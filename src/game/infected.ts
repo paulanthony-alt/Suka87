@@ -8,6 +8,7 @@ import { Spring, chance, clamp, damp, pick, rand, randInt, wrapAngle } from '../
 import type { Effects } from './effects';
 import { InfectedSprite } from '../sprites/infectedSprite';
 import type { AnimName } from '../sprites/library';
+import { InfectedModel, models as models3d, setModelMutation, type ModelAnim } from './models3d';
 
 export type Zone = 'head' | 'body' | 'limb';
 type State = 'idle' | 'wander' | 'investigate' | 'chase' | 'attack' | 'stagger' | 'scream' | 'charge' | 'stunned' | 'bash' | 'dead';
@@ -94,6 +95,7 @@ export function setMutation(level: number) {
   for (const s of m.skins) s.emissiveIntensity = 0.08 + level * 0.5;
   m.eye.emissiveIntensity = 2 + level * 3;
   m.pustule.emissiveIntensity = 0.4 + level * 1.2;
+  setModelMutation(level);
 }
 
 interface Rig {
@@ -223,6 +225,9 @@ export class Infected {
   readonly def: InfectedDef;
   readonly rig: Rig;
   readonly sprite: InfectedSprite;
+  /** rigged 3D body; the primitive rig then only serves as hit boxes */
+  readonly model: InfectedModel | null;
+  private lastHitZone: Zone = 'body';
   private spriteMode: boolean | null = null;
   private spriteFlip = false;
   readonly pos: THREE.Vector3;
@@ -284,6 +289,7 @@ export class Infected {
     for (const m of this.rig.hitMeshes) m.userData.owner = this;
     this.rig.root.position.copy(this.pos);
     this.sprite = new InfectedSprite(this.boss ? 'patientZero' : kind);
+    this.model = models3d.ready ? new InfectedModel(kind, this.boss) : null;
     this.setRenderMode(ctx.spriteMode);
     if (opts.alerted) this.alert(ctx, true);
   }
@@ -392,6 +398,7 @@ export class Infected {
     const dealt = amount * mul;
     this.hp -= dealt;
     this.lastHitTime = ctx.time;
+    this.lastHitZone = zone;
     this.sprite.flashHurt();
     this.dormant = false;
 
@@ -425,6 +432,7 @@ export class Infected {
     if (headshot && this.kind !== 'brute') {
       this.headless = true;
       this.rig.head.visible = false;
+      this.model?.setHeadless();
       ctx.effects.gore(this.headPos);
     }
     // decide loot
@@ -442,6 +450,7 @@ export class Infected {
     if (!this.alive) {
       this.animateDeath(dt);
       this.updateSprite(dt, ctx);
+      this.updateModel(dt);
       return;
     }
     this.screamCooldown -= dt;
@@ -676,6 +685,7 @@ export class Infected {
 
     this.animate(dt, ctx, toPlayer, dist);
     this.updateSprite(dt, ctx);
+    this.updateModel(dt);
   }
 
   // ------------------------------------------------------------------ animation
@@ -838,8 +848,33 @@ export class Infected {
   setRenderMode(sprites: boolean) {
     if (this.spriteMode === sprites) return;
     this.spriteMode = sprites;
-    this.rig.root.traverse((o) => o.layers.set(sprites ? 1 : 0));
+    // with a 3D body loaded the primitive rig is never drawn, only hit-tested
+    const hideRig = sprites || !!this.model;
+    this.rig.root.traverse((o) => o.layers.set(hideRig ? 1 : 0));
     this.sprite.mesh.visible = sprites;
+    if (this.model) this.model.root.visible = !sprites;
+  }
+
+  private updateModel(dt: number) {
+    const m = this.model;
+    if (!m || this.spriteMode) return;
+    let anim: ModelAnim = 'idle';
+    const v = this.moveSpeed;
+    switch (this.state) {
+      case 'dead': anim = 'death'; break;
+      case 'attack': anim = 'attack'; break;
+      case 'bash': anim = 'bash'; break;
+      case 'scream': anim = 'scream'; break;
+      case 'stagger': anim = this.lastHitZone === 'head' ? 'painHead' : 'pain'; break;
+      case 'stunned': anim = 'stunned'; break;
+      case 'charge': anim = this.stateTime < 0.75 ? 'scream' : 'run'; break;
+      default:
+        if (v > 2.2) anim = 'run';
+        else if (v > 0.15) anim = 'walk';
+    }
+    const fx = this.alive ? this.hitSpringX.value : 0;
+    const fz = this.alive ? this.hitSpringZ.value : 0;
+    m.update(dt, anim, this.pos, this.yaw, this.scale, v, fx, fz);
   }
 
   private updateSprite(dt: number, ctx: InfectedContext) {
@@ -869,5 +904,6 @@ export class Infected {
   dispose() {
     this.rig.root.removeFromParent();
     this.sprite.dispose();
+    this.model?.dispose();
   }
 }

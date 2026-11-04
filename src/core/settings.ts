@@ -17,6 +17,8 @@ export interface Settings {
   showFps: boolean;
   /** render infected, pickups and the held weapon as 2D sprites */
   spriteMode: boolean;
+  /** set once older saves have been moved to the 3D default */
+  models3d?: boolean;
   /** adapt resolution/effects to hold the frame rate */
   autoQuality: boolean;
 }
@@ -36,7 +38,8 @@ const DEFAULTS: Settings = {
   bloom: true,
   filmGrain: true,
   showFps: false,
-  spriteMode: true,
+  spriteMode: false,
+  models3d: true,
   autoQuality: true,
 };
 
@@ -51,7 +54,15 @@ export const DIFFICULTY: Record<Difficulty, { label: string; desc: string; enemy
 export function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(KEY);
-    if (raw) return { ...DEFAULTS, ...JSON.parse(raw) };
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<Settings>;
+      // 3D bodies became the default; move older saves off the old sprite default once
+      if (!saved.models3d) {
+        saved.spriteMode = false;
+        saved.models3d = true;
+      }
+      return { ...DEFAULTS, ...saved };
+    }
   } catch {
     /* storage unavailable: fall back to defaults */
   }

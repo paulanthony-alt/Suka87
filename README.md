@@ -23,10 +23,28 @@ npm run validate:levels   # connectivity / door / placement checks for every map
 Use a desktop browser with a mouse; the game captures the pointer when you click the view.
 Headphones are recommended because enemy positions are audible (HRTF spatial audio).
 
+## 3D models
+
+The infected and the first-person weapons are real rigged 3D models (all CC0, credits in
+[`public/models/LICENSES.md`](public/models/LICENSES.md)):
+
+- **Infected** share one rigged humanoid (`public/models/humanoid.glb`) with motion-captured clips:
+  zombie walk and idle, sprint, scratch and punch attacks, hit reactions and a death fall. Each strain
+  gets its own body shape from bone scaling (swollen bloater with glowing pustules, broad brute,
+  thin screamer and runner), and clothing (gowns, scrubs, civilian clothes, security uniform),
+  mottled skin, blood, glowing veins and eyes are painted in a shader, so every infected looks
+  different. Headshot kills leave a headless body. The old primitive rig still runs invisibly as
+  the hit boxes, so damage zones and AI behave exactly as before.
+- **Weapons** are modelled guns and a fire axe, held by gloved first-person arms that grab the grip
+  and handguard with two-hand IK every frame, so recoil, reloads, sprinting and the shotgun pump all
+  move the hands with the gun (`src/game/models3d.ts`).
+
+If a model file fails to load, the game falls back to the built-in primitive models.
+
 ## 2D sprite mode
 
-By default the infected, pickups and the held weapon are drawn as 2D sprites (Doom-style
-billboards) inside the 3D hospital, so gameplay can be tested before 3D models exist. Drop your
+Toggle **Settings → Display → 2D sprite characters** to draw the infected, pickups and the held
+weapon as 2D sprites (Doom-style billboards) instead. Drop your
 PNGs into `public/sprites/` and list them in `public/sprites/sprites.json`; see
 [`public/sprites/README.md`](public/sprites/README.md) for sheet layout and naming. Anything not
 listed uses a generated placeholder. The six infected currently use the concept paintings from
@@ -36,8 +54,7 @@ outline and the sprite mesh bends around them to walk, swing arms, attack, screa
 (`src/sprites/puppet.ts`).
 
 UI motion (wheels, menus, HUD feed, objective changes, crafting) uses [Motion](https://motion.dev)
-springs through `src/ui/anim.ts`. Toggle **Settings → Display → 2D sprite characters** to switch
-back to the procedural 3D models at any time; hit zones and AI are identical in both modes.
+springs through `src/ui/anim.ts`. Hit zones and AI are identical in sprite and 3D modes.
 
 ![2D sprite mode](docs/screenshot-sprites.jpg)
 
