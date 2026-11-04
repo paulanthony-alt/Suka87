@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import { toCreasedNormals } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { InfectedKind } from '../data/infected';
 import type { WeaponId } from '../data/weapons';
 import { pick, rand } from '../core/math';
@@ -89,6 +90,18 @@ float n3(vec3 x){vec3 i=floor(x);vec3 f=fract(x);f=f*f*(3.0-2.0*f);
 return mix(mix(mix(h3(i),h3(i+vec3(1,0,0)),f.x),mix(h3(i+vec3(0,1,0)),h3(i+vec3(1,1,0)),f.x),f.y),
 mix(mix(h3(i+vec3(0,0,1)),h3(i+vec3(1,0,1)),f.x),mix(h3(i+vec3(0,1,1)),h3(i+vec3(1,1,1)),f.x),f.y),f.z);}
 float fbm(vec3 p){float a=.5,s=0.;for(int i=0;i<4;i++){s+=a*n3(p);p*=2.03;a*=.5;}return s;}
+`;
+
+/** Screen-space bump from a procedural height (same maths as three's bump map). */
+const BUMP = /* glsl */ `
+vec3 sukaBump(vec3 pos, vec3 n, float h, float k) {
+  vec3 sx = dFdx(pos), sy = dFdy(pos);
+  vec3 r1 = cross(sy, n), r2 = cross(n, sx);
+  float det = dot(sx, r1);
+  vec2 dh = vec2(dFdx(h), dFdy(h)) * k;
+  vec3 g = sign(det) * (dh.x * r1 + dh.y * r2);
+  return normalize(abs(det) * n - g);
+}
 `;
 
 /** Shared so one call re-tints every infected as the strain mutates. */
@@ -180,7 +193,8 @@ vObj = position;`,
         /* glsl */ `#include <common>
 uniform vec3 uSkin, uShirt, uPants, uShoes, uHairCol; uniform float uSeed, uBlood, uHair, uGlow, uMut;
 varying vec4 vReg; varying vec3 vObj;
-${NOISE}`,
+${NOISE}
+${BUMP}`,
       )
       .replace(
         '#include <color_fragment>',
@@ -208,12 +222,19 @@ col = mix(col, vec3(0.12, 0.0, 0.01), mouth);
 float hair = rw.x * uHair * step(1.6, vObj.y) * smoothstep(1.735, 1.76, vObj.y + 0.06 * smoothstep(0.03, -0.06, vObj.z) + 0.02 * n3(P * 8.0));
 hair *= smoothstep(0.25, 0.5, fbm(P * 6.0) + 0.1);
 col = mix(col, uHairCol * (0.6 + 0.6 * fbm(P * 30.0)), hair);
-diffuseColor.rgb = col;`,
+diffuseColor.rgb = col;
+float clothW = 1.0 - rw.x;
+float bumpH = clothW * (0.6 * n3(vObj * 160.0) + 0.4 * fbm(vObj * 45.0)) * (1.0 - wet) + rw.x * fbm(P * 5.0) * 0.6;`,
       )
       .replace(
         '#include <roughnessmap_fragment>',
         /* glsl */ `#include <roughnessmap_fragment>
 roughnessFactor = mix(0.85, 0.32, wet) - rw.x * 0.18;`,
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        /* glsl */ `#include <normal_fragment_maps>
+normal = sukaBump(-vViewPosition, normal, bumpH, 0.006);`,
       )
       .replace(
         '#include <emissivemap_fragment>',
@@ -251,8 +272,29 @@ const COMMON: Record<ModelAnim, [string, number]> = {
   death: ['death', 0],
 };
 
+let blobMat: THREE.MeshBasicMaterial | null = null;
+const blobGeo = new THREE.PlaneGeometry(1, 1);
+/** Soft contact shadow under each body, so they sit on the floor even away from shadow-casting lights. */
+function contactShadowMaterial() {
+  if (blobMat) return blobMat;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, 'rgba(0,0,0,0.75)');
+  grad.addColorStop(0.45, 'rgba(0,0,0,0.45)');
+  grad.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  blobMat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 });
+  return blobMat;
+}
+
 const pustuleMat = new THREE.MeshStandardMaterial({ color: '#5a4872', emissive: '#a98bff', emissiveIntensity: 0.6, roughness: 0.2 });
 const pustuleGeo = new THREE.SphereGeometry(1, 12, 10);
+const _tmpV = new THREE.Vector3();
 
 export class InfectedModel {
   readonly root: THREE.Object3D;
@@ -262,6 +304,7 @@ export class InfectedModel {
   private currentAnim: ModelAnim | null = null;
   private bones = new Map<string, THREE.Bone>();
   private kind: InfectedKind;
+  private blob: THREE.Mesh;
 
   constructor(kind: InfectedKind, boss: boolean) {
     this.kind = kind;
@@ -283,6 +326,12 @@ export class InfectedModel {
       m.boundingSphere = new THREE.Sphere(new THREE.Vector3(0, 0.9, 0), 1.4);
     }
     this.shape(kind, boss);
+    this.blob = new THREE.Mesh(blobGeo, contactShadowMaterial());
+    this.blob.rotation.x = -Math.PI / 2;
+    this.blob.position.y = 0.012;
+    this.blob.scale.set(kind === 'bloater' || kind === 'brute' ? 1.15 : 0.85, 0.75, 1);
+    this.blob.renderOrder = -1;
+    this.root.add(this.blob);
     this.mixer = new THREE.AnimationMixer(this.root);
     this.play('idle', 0, 0);
     this.mixer.update(rand(0, 3));
@@ -365,6 +414,15 @@ export class InfectedModel {
     this.root.position.copy(pos);
     this.root.rotation.y = yaw;
     this.root.scale.setScalar(scale);
+    // keep the contact shadow under the hips (a falling body moves away from its root)
+    const pelvis = this.bones.get('pelvis');
+    if (pelvis) {
+      this.root.updateMatrixWorld(true);
+      const p = this.root.worldToLocal(pelvis.getWorldPosition(_tmpV));
+      this.blob.position.x = p.x;
+      this.blob.position.z = p.z;
+      this.blob.scale.y = anim === 'death' ? 1.3 : 0.75;
+    }
     // bullet impacts rock the torso on top of the clip
     const spine = this.bones.get('spine_02');
     if (spine && (flinchX || flinchZ)) {
@@ -430,22 +488,128 @@ export interface GunModel {
   curl: [number, number, number];
 }
 
-function tuneMaterials(o: THREE.Object3D) {
+type GunFinish = 'steel' | 'alloy' | 'polymer' | 'wood' | 'paint' | 'glass';
+
+/** Which finish each source material gets, and its base colour (linear). */
+function finishFor(name: string): { kind: GunFinish; color: string } {
+  const n = name.toLowerCase();
+  if (/wood/.test(n)) return { kind: 'wood', color: '#5a3520' };
+  if (/glass/.test(n)) return { kind: 'glass', color: '#0c1a1c' };
+  if (/green/.test(n)) return { kind: 'paint', color: '#252b1d' };
+  if (/^main/.test(n)) return { kind: 'alloy', color: n === 'mainlight' ? '#3a3d3f' : n === 'maindark' ? '#1d2022' : '#2a2d2f' };
+  if (/lightmetal/.test(n)) return { kind: 'steel', color: '#3a3e41' };
+  if (/darkmetal/.test(n)) return { kind: 'steel', color: '#2e3134' };
+  if (/metal/.test(n)) return { kind: 'steel', color: '#45494c' };
+  if (/black2/.test(n)) return { kind: 'polymer', color: '#0e0f10' };
+  if (/grey|gray/.test(n)) return { kind: 'polymer', color: '#2a2c2d' };
+  return { kind: 'polymer', color: '#161718' };
+}
+
+const FINISH_ID: Record<GunFinish, number> = { steel: 0, alloy: 1, polymer: 2, wood: 3, paint: 4, glass: 5 };
+
+/**
+ * Procedural PBR finishes for the gun models (they have no UVs or textures): parkerized steel with
+ * machining marks and holster wear, anodized alloy, stippled polymer, oiled wood grain and chipped
+ * paint, plus a micro-bump so highlights break up like real surfaces.
+ */
+function gunMaterial(kind: GunFinish, color: string, metersPerUnit: number) {
+  const metal = kind === 'steel' ? 0.85 : kind === 'alloy' ? 0.7 : kind === 'glass' ? 0.3 : 0;
+  const m = new THREE.MeshStandardMaterial({ color, metalness: metal, roughness: kind === 'glass' ? 0.08 : 0.5 });
+  if (kind === 'glass') return m;
+  m.defines = { GUN_FINISH: FINISH_ID[kind] };
+  const U = { uK: { value: metersPerUnit } };
+  m.onBeforeCompile = (sh) => {
+    Object.assign(sh.uniforms, U);
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vGun;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGun = position;');
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+uniform float uK; varying vec3 vGun;
+${NOISE}
+${BUMP}`)
+      .replace(
+        '#include <color_fragment>',
+        /* glsl */ `#include <color_fragment>
+vec3 P = vGun * uK;            // metres, barrel along +X
+float rough = 0.5;
+float h = 0.0;
+float dust = smoothstep(0.55, 0.85, fbm(P * 25.0));
+#if GUN_FINISH == 0
+  // parkerized steel: fine grain, machining streaks along the barrel, bright holster wear
+  float grain = n3(P * 220.0);
+  float streak = n3(vec3(P.x * 20.0, P.y * 520.0, P.z * 520.0));
+  float wear = smoothstep(0.7, 0.85, fbm(P * 40.0 + 3.0));
+  diffuseColor.rgb *= 0.85 + 0.25 * fbm(P * 60.0) + 0.08 * streak;
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.38, 0.39, 0.4), wear * 0.3);
+  rough = mix(0.46 + 0.12 * grain, 0.26, wear) + 0.05 * streak;
+  h = grain * 0.3 + streak * 0.2;
+#elif GUN_FINISH == 1
+  // hard-anodized alloy: satin, slightly blotchy, worn to bare grey on edges of rails
+  float an = fbm(P * 70.0);
+  float wear = smoothstep(0.72, 0.86, fbm(P * 55.0 + 9.0));
+  diffuseColor.rgb *= 0.85 + 0.3 * an;
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.2, 0.205, 0.21), wear * 0.5);
+  rough = mix(0.48 + 0.12 * an, 0.3, wear);
+  h = n3(P * 220.0) * 0.2;
+#elif GUN_FINISH == 2
+  // polymer: matte stipple texture with greasy hand polish
+  float st = n3(P * 300.0);
+  float polish = smoothstep(0.6, 0.8, fbm(P * 30.0 + 5.0));
+  diffuseColor.rgb *= 0.9 + 0.2 * fbm(P * 80.0);
+  rough = mix(0.72 + 0.08 * st, 0.48, polish);
+  h = st * 0.35 * (1.0 - polish * 0.7);
+#elif GUN_FINISH == 3
+  // oiled walnut: warped growth rings along the stock, darker pores
+  float warp = fbm(P * vec3(6.0, 40.0, 40.0)) * 5.0;
+  float ring = 0.5 + 0.5 * sin(P.y * 420.0 + P.z * 160.0 + warp * 6.0);
+  float pores = smoothstep(0.7, 0.9, n3(vec3(P.x * 40.0, P.y * 700.0, P.z * 700.0)));
+  diffuseColor.rgb *= mix(0.65, 1.25, ring) * (1.0 - pores * 0.35);
+  rough = 0.42 + 0.2 * ring;
+  h = ring * 0.4 + pores * 0.5;
+#elif GUN_FINISH == 4
+  // painted stock: olive paint chipped through to black
+  float chip = smoothstep(0.66, 0.7, fbm(P * 70.0 + 2.0));
+  diffuseColor.rgb = mix(diffuseColor.rgb * (0.88 + 0.25 * fbm(P * 90.0)), vec3(0.02), chip);
+  rough = mix(0.62, 0.45, chip);
+  h = n3(P * 500.0) * 0.4 - chip * 0.8;
+#endif
+diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.8 + vec3(0.012, 0.011, 0.009), dust * 0.4);
+float gunBump = h;`,
+      )
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = clamp(rough + dust * 0.15, 0.08, 1.0);')
+      .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\nnormal = sukaBump(-vViewPosition, normal, gunBump, 0.0015);');
+  };
+  return m;
+}
+
+function tuneMaterials(o: THREE.Object3D, metersPerUnit: number, smooth: boolean) {
+  const cache = new Map<string, THREE.Material>();
   o.traverse((c) => {
-    const m = (c as THREE.Mesh).material as THREE.MeshStandardMaterial | undefined;
-    if (!m || !(c as THREE.Mesh).isMesh) return;
-    const mat = m.clone();
-    const n = (mat.name || '').toLowerCase();
-    if (/metal|black|steel|iron|grey|gray/.test(n)) {
-      mat.metalness = 0.55;
-      mat.roughness = 0.42;
-    } else if (/wood/.test(n)) {
-      mat.metalness = 0;
-      mat.roughness = 0.7;
-    } else {
-      mat.roughness = Math.max(mat.roughness, 0.55);
+    const mesh = c as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    // soften the low-poly facets but keep hard edges crisp
+    if (smooth && !mesh.userData.creased) {
+      mesh.geometry = toCreasedNormals(mesh.geometry, THREE.MathUtils.degToRad(35));
+      mesh.userData.creased = true;
     }
-    (c as THREE.Mesh).material = mat;
+    const src = mesh.material as THREE.MeshStandardMaterial;
+    if (src.map) {
+      // the axe ships with a colour atlas: keep it, just make it physically plausible
+      const mat = src.clone();
+      mat.roughness = 0.55;
+      mat.metalness = 0.2;
+      mesh.material = mat;
+      return;
+    }
+    const key = src.name;
+    let mat = cache.get(key);
+    if (!mat) {
+      const f = finishFor(src.name || '');
+      mat = gunMaterial(f.kind, f.color, metersPerUnit);
+      cache.set(key, mat);
+    }
+    mesh.material = mat;
   });
 }
 
@@ -454,13 +618,13 @@ export function buildGunModel(id: WeaponId): GunModel | null {
   if (!src) return null;
   const spec = GUNS[id];
   const model = src.clone(true);
-  tuneMaterials(model);
   model.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(model);
   const size = box.getSize(new THREE.Vector3());
   // axe: its haft runs down +Z in the source; guns run down +X
   const len = spec.upright ? size.z : size.x;
   const k = spec.length / len;
+  tuneMaterials(model, k, !spec.upright);
 
   const gun = new THREE.Group();
   const holder = new THREE.Group();
@@ -740,28 +904,60 @@ vObj = position;`,
         '#include <common>',
         /* glsl */ `#include <common>
 varying vec3 vArm; varying vec3 vObj;
-${NOISE}`,
+${NOISE}
+${BUMP}`,
       )
       .replace(
         '#include <color_fragment>',
         /* glsl */ `#include <color_fragment>
 if (vArm.x > 0.5) discard;
-float glove = smoothstep(0.35, 0.65, vArm.z);
+// bind pose: arms run along X at shoulder height, the hand starts at |x| = 0.74
+float ax = abs(vObj.x);
+float ang = atan(vObj.z + 0.065, vObj.y - 1.441);
+float circ = ang * 0.045;                       // metres around the sleeve
 vec3 P = vObj * 40.0;
-float weave = fbm(P * 3.0);
-vec3 sleeve = vec3(0.05, 0.058, 0.048) * (0.75 + 0.45 * weave);
-// cuff seam just above the glove
-float cuff = smoothstep(0.25, 0.35, vArm.z) * (1.0 - glove);
-sleeve = mix(sleeve, vec3(0.03, 0.033, 0.03), cuff);
-vec3 g = vec3(0.03, 0.031, 0.033) * (0.8 + 0.4 * fbm(P * 1.5));
-// worn knuckles
-g += vec3(0.03) * smoothstep(0.6, 0.8, fbm(P * 0.7 + 3.0));
-diffuseColor.rgb = mix(sleeve, g, glove);`,
+float glove = max(smoothstep(0.728, 0.742, ax), smoothstep(0.55, 0.8, vArm.z));
+float cuff = smoothstep(0.685, 0.692, ax) * (1.0 - glove);
+
+// brown duck canvas work jacket: twill weave, sun-faded on top of the forearm, grimy toward the cuff
+float twPh = (vObj.x * sign(vObj.x) + circ) * 1250.0;
+float twAA = clamp(1.5 - length(vec2(dFdx(twPh), dFdy(twPh))) * 0.5, 0.0, 1.0);
+float twill = 0.5 + 0.5 * sin(twPh) * twAA;
+float slub = n3(vec3(vObj.x * 60.0, circ * 150.0, 0.0));
+vec3 duck = vec3(0.1, 0.054, 0.025) * (0.92 + 0.04 * twill + 0.25 * fbm(P * 2.0));
+float fade = smoothstep(0.45, 0.75, fbm(P * 0.6 + 4.0)) * (0.4 + 0.6 * smoothstep(0.2, 0.9, cos(ang)));
+duck = mix(duck, vec3(0.2, 0.135, 0.075), fade * 0.4);
+float grime = smoothstep(0.5, 0.75, fbm(P * 1.2 + 9.0)) + smoothstep(0.58, 0.66, ax) * 0.5;
+duck *= 1.0 - clamp(grime, 0.0, 1.0) * 0.35;
+// double-stitched seam down the underside of the sleeve
+float dSeam = abs(ang - 2.5) * 0.045;
+float seamRidge = smoothstep(0.004, 0.0, dSeam);
+float stitch = (step(abs(dSeam - 0.0032), 0.0006)) * step(0.45, fract(vObj.x * 320.0));
+duck = mix(duck, vec3(0.36, 0.22, 0.08), stitch * (1.0 - cuff));
+// rib-knit cuff
+float rib = 0.5 + 0.5 * sin(ang * 40.0);
+vec3 knit = vec3(0.07, 0.04, 0.02) * (0.92 + 0.1 * rib);
+vec3 sleeve = mix(duck, knit, cuff);
+
+// worn leather work gloves: scuffed knuckles, dirt in the creases
+float crease = fbm(vec3(vObj.x * 120.0, vObj.y * 30.0, vObj.z * 30.0));
+vec3 leather = vec3(0.042, 0.03, 0.022) * (0.8 + 0.4 * fbm(P * 4.0));
+leather = mix(leather, vec3(0.1, 0.075, 0.055), smoothstep(0.6, 0.8, fbm(P * 2.5 + 3.0)) * 0.6);
+leather *= 1.0 - smoothstep(0.55, 0.7, crease) * 0.4;
+
+diffuseColor.rgb = mix(sleeve, leather, glove);
+float armRough = mix(mix(0.92, 0.97, cuff), 0.6 - 0.15 * smoothstep(0.6, 0.8, fbm(P * 2.5 + 3.0)), glove);
+float armBump = mix(mix(slub * 0.5 + seamRidge * 1.5, rib * 0.3, cuff), crease * 0.8, glove);`,
       )
       .replace(
         '#include <roughnessmap_fragment>',
         /* glsl */ `#include <roughnessmap_fragment>
-roughnessFactor = mix(0.95, 0.55, glove);`,
+roughnessFactor = armRough;`,
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        /* glsl */ `#include <normal_fragment_maps>
+normal = sukaBump(-vViewPosition, normal, armBump, 0.003);`,
       );
   };
   return m;

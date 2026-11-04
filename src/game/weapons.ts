@@ -531,8 +531,10 @@ export class WeaponSystem {
   // ------------------------------------------------------------------ animation
 
   setLighting(level01: number) {
-    this.hemi.intensity = 0.65 + level01 * 0.9;
+    this.hemi.intensity = 0.55 + level01 * 0.8;
     this.key.intensity = 0.8 + level01 * 1.2;
+    // reflections on the gun follow how bright it is where you stand
+    this.scene.environmentIntensity = 0.12 + level01 * 0.45;
   }
 
   private animate(dt: number) {

@@ -116,6 +116,11 @@ export class Game {
 
     this.weapons = new WeaponSystem(this);
     this.tools = new ToolSystem(this);
+    // image-based reflections: metal, wet floors and glass pick up a soft room environment
+    const env = this.renderer.roomEnvironment();
+    this.scene.environment = env;
+    this.scene.environmentIntensity = 0.1;
+    this.weapons.scene.environment = env;
     this.scene.add(this.tools.group);
     this.director = new Director(this);
     this.objectives = new Objectives(this);

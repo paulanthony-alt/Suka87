@@ -3,6 +3,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 /**
  * Final screen-space grade: vignette, film grain, chromatic aberration on damage, low-health
@@ -20,6 +21,7 @@ const GradeShader = {
     uFlash: { value: 0 },
     uAspect: { value: 16 / 9 },
     uToneExposure: { value: 1.05 },
+    uTexel: { value: new THREE.Vector2(1 / 1920, 1 / 1080) },
   },
   vertexShader: /* glsl */ `
     varying vec2 vUv;
@@ -28,6 +30,7 @@ const GradeShader = {
   fragmentShader: /* glsl */ `
     uniform sampler2D tDiffuse;
     uniform float uTime, uGrain, uVignette, uDamage, uLowHealth, uExposure, uFlash, uAspect, uToneExposure;
+    uniform vec2 uTexel;
 
     // ACES filmic tone mapping + sRGB encode, folded in here so the frame needs one less
     // full-screen pass (matches three.js ACESFilmicToneMapping / OutputPass).
@@ -49,6 +52,27 @@ const GradeShader = {
     varying vec2 vUv;
 
     float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    // perceptual luma of an HDR sample, for edge detection before tone mapping
+    float sukaLuma(vec3 c) { return log2(1.0 + dot(c, vec3(0.299, 0.587, 0.114)) * 4.0); }
+    // FXAA (3.11 console variant) folded into the grade: the scene renders without MSAA
+    vec3 sukaFxaa(vec2 uv) {
+      vec3 rgbM = texture2D(tDiffuse, uv).rgb;
+      float lNW = sukaLuma(texture2D(tDiffuse, uv + vec2(-1.0, -1.0) * uTexel).rgb);
+      float lNE = sukaLuma(texture2D(tDiffuse, uv + vec2(1.0, -1.0) * uTexel).rgb);
+      float lSW = sukaLuma(texture2D(tDiffuse, uv + vec2(-1.0, 1.0) * uTexel).rgb);
+      float lSE = sukaLuma(texture2D(tDiffuse, uv + vec2(1.0, 1.0) * uTexel).rgb);
+      float lM = sukaLuma(rgbM);
+      float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE)));
+      float lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
+      if (lMax - lMin < max(0.05, lMax * 0.125)) return rgbM;
+      vec2 dir = vec2(-((lNW + lNE) - (lSW + lSE)), (lNW + lSW) - (lNE + lSE));
+      float red = max((lNW + lNE + lSW + lSE) * 0.03125, 1.0 / 128.0);
+      dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + red), -8.0, 8.0) * uTexel;
+      vec3 a = 0.5 * (texture2D(tDiffuse, uv + dir * (1.0 / 3.0 - 0.5)).rgb + texture2D(tDiffuse, uv + dir * (2.0 / 3.0 - 0.5)).rgb);
+      vec3 b = a * 0.5 + 0.25 * (texture2D(tDiffuse, uv - dir * 0.5).rgb + texture2D(tDiffuse, uv + dir * 0.5).rgb);
+      float lB = sukaLuma(b);
+      return (lB < lMin || lB > lMax) ? a : b;
+    }
 
     void main() {
       vec2 uv = vUv;
@@ -60,10 +84,11 @@ const GradeShader = {
       uv += c * sin(uTime * 1.7 + r * 6.0) * wobble;
 
       float ca = 0.0015 + uDamage * 0.008 + uExposure * 0.003;
-      vec3 col;
-      col.r = texture2D(tDiffuse, uv + c * ca).r;
-      col.g = texture2D(tDiffuse, uv).g;
-      col.b = texture2D(tDiffuse, uv - c * ca).b;
+      vec3 col = sukaFxaa(uv);
+      // chromatic fringe grows toward the edges; the centre keeps the anti-aliased colour
+      float fringe = clamp(length(c) * ca * 800.0, 0.0, 1.0);
+      col.r = mix(col.r, texture2D(tDiffuse, uv + c * ca).r, fringe);
+      col.b = mix(col.b, texture2D(tDiffuse, uv - c * ca).b, fringe);
       col = sukaSRGB(sukaAces(col));
 
       // low health: desaturate and pull to cold
@@ -145,6 +170,7 @@ export class Renderer {
       uExposure: { value: number };
       uFlash: { value: number };
       uAspect: { value: number };
+      uTexel: { value: THREE.Vector2 };
     };
   }
 
@@ -170,6 +196,17 @@ export class Renderer {
     this.composer.setSize(this.width, this.height);
     this.bloom.resolution.set(this.width * pr * 0.5, this.height * pr * 0.5);
     this.fx.uAspect.value = this.width / this.height;
+    this.fx.uTexel.value.set(1 / Math.max(1, this.width * pr), 1 / Math.max(1, this.height * pr));
+  }
+
+  /** Prefiltered studio-room environment for reflections (built once). */
+  roomEnvironment() {
+    const pmrem = new THREE.PMREMGenerator(this.renderer);
+    const room = new RoomEnvironment();
+    const tex = pmrem.fromScene(room, 0.04).texture;
+    room.dispose();
+    pmrem.dispose();
+    return tex;
   }
 
   get bloomEnabled() {
