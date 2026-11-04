@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { WeaponId } from '../data/weapons';
 import { brushedMetal, muzzleFlashTexture } from '../world/textures';
+import { buildGunModel } from './models3d';
 
 /**
  * First-person weapon models built from primitives. Each model points down -Z with the sight line
@@ -21,6 +22,8 @@ export interface ViewModel {
   ads: THREE.Vector3;
   /** dmr uses a full-screen scope overlay instead of the model when fully aimed */
   scoped?: boolean;
+  /** 3D-model weapons: where the IK arms grab, and how closed the hands are */
+  arms?: { right: THREE.Object3D; left: THREE.Object3D | null; curl: [number, number, number] };
 }
 
 interface Mats {
@@ -113,7 +116,39 @@ function flashQuad(parent: THREE.Object3D, z: number, size: number) {
   return f;
 }
 
-export function buildViewModel(id: WeaponId): ViewModel {
+/** Viewmodel from a loaded gun model, held by the IK arms in WeaponSystem. */
+function buildModelViewModel(id: WeaponId): ViewModel | null {
+  const g = buildGunModel(id);
+  if (!g) return null;
+  const root = new THREE.Group();
+  root.add(g.gun);
+  const muzzle = new THREE.Object3D();
+  muzzle.position.copy(g.muzzle);
+  g.gun.add(muzzle);
+  const flash = id === 'axe' ? null : flashQuad(muzzle, -0.03, id === 'shotgun' ? 0.3 : id === 'pistol' ? 0.16 : 0.22);
+  const ads = new THREE.Vector3(0, -g.sightY - 0.006, g.adsZ);
+  return {
+    id,
+    root,
+    gun: g.gun,
+    muzzle,
+    flash,
+    mag: null,
+    slide: null,
+    pump: g.pump,
+    leftHand: g.leftTarget ?? g.rightTarget,
+    hip: g.hip,
+    ads: id === 'axe' ? g.hip.clone() : ads,
+    scoped: id === 'dmr' || id === 'axe',
+    arms: { right: g.rightTarget, left: g.leftTarget, curl: g.curl },
+  };
+}
+
+export function buildViewModel(id: WeaponId, allowModel = true): ViewModel {
+  if (allowModel) {
+    const fromModel = buildModelViewModel(id);
+    if (fromModel) return fromModel;
+  }
   const m = mats();
   const root = new THREE.Group();
   const gun = new THREE.Group();

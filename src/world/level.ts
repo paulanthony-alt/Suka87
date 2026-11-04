@@ -486,6 +486,27 @@ export class Level {
         // fluorescent tubes vary tube to tube: some cool, some warm and tired
         slot.light.color.set(f.kind === 'emergency' ? '#ff3a24' : f.phase % 3 < 1 ? '#e8e2d0' : f.phase % 3 < 2 ? '#d6e6de' : '#cfe0e6');
       }
+      // the one shadow-casting slot always takes the nearest fixture, so bodies and props
+      // throw real shadows from the tube right above you (exactly one caster keeps shaders stable)
+      const caster = this.lights[0];
+      const nearest = live[0];
+      if (nearest && caster.fixture !== nearest) {
+        const other = this.lights.find((l) => l.fixture === nearest);
+        if (other) {
+          const f = caster.fixture;
+          caster.fixture = nearest;
+          other.fixture = f;
+          const fade = caster.fade;
+          caster.fade = other.fade;
+          other.fade = fade;
+          const pos = caster.light.position.clone();
+          caster.light.position.copy(other.light.position);
+          other.light.position.copy(pos);
+          const col = caster.light.color.clone();
+          caster.light.color.copy(other.light.color);
+          other.light.color.copy(col);
+        }
+      }
     }
     for (const l of this.lights) {
       l.fade = Math.min(1, l.fade + dt * 3);
@@ -922,7 +943,14 @@ export class Level {
 
     for (let i = 0; i < 5; i++) {
       const light = new THREE.PointLight('#d6e6de', 0, 15, 2);
-      light.castShadow = false;
+      light.castShadow = i === 0;
+      if (i === 0) {
+        light.shadow.mapSize.set(512, 512);
+        light.shadow.camera.near = 0.1;
+        light.shadow.bias = -0.002;
+        light.shadow.normalBias = 0.03;
+        light.shadow.radius = 3;
+      }
       this.group.add(light);
       this.lights.push({ light, fixture: null, fade: 0 });
     }

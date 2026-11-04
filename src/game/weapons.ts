@@ -3,6 +3,7 @@ import { WEAPONS, type FireMode, type WeaponDef, type WeaponId } from '../data/w
 import { audio } from '../core/audio';
 import { DEG, Spring, clamp, damp, rand, smoothstep } from '../core/math';
 import { buildViewModel, type ViewModel } from './viewmodels';
+import { ArmsRig, models as models3d } from './models3d';
 import type { Game } from './game';
 import type { Infected, Zone } from './infected';
 
@@ -24,6 +25,8 @@ export class WeaponSystem {
   private models = new Map<WeaponId, ViewModel>();
   private vm!: ViewModel;
   private holder = new THREE.Group();
+  private arms: ArmsRig | null = null;
+  private armsFor: ViewModel | null = null;
   private hemi: THREE.HemisphereLight;
   private key: THREE.DirectionalLight;
   private flashLight: THREE.PointLight;
@@ -77,6 +80,10 @@ export class WeaponSystem {
       this.models.set(id, m);
     }
     this.vm = this.models.get('axe')!;
+    if (models3d.ready) {
+      this.arms = new ArmsRig();
+      this.holder.add(this.arms.root);
+    }
   }
 
   get def(): WeaponDef {
@@ -524,8 +531,10 @@ export class WeaponSystem {
   // ------------------------------------------------------------------ animation
 
   setLighting(level01: number) {
-    this.hemi.intensity = 0.65 + level01 * 0.9;
+    this.hemi.intensity = 0.55 + level01 * 0.8;
     this.key.intensity = 0.8 + level01 * 1.2;
+    // reflections on the gun follow how bright it is where you stand
+    this.scene.environmentIntensity = 0.12 + level01 * 0.45;
   }
 
   private animate(dt: number) {
@@ -660,6 +669,21 @@ export class WeaponSystem {
 
     // hide model through the scope
     vm.root.visible = !this.scoped;
+    this.poseArms(vm);
+  }
+
+  /** Point the IK arms at the current gun's grips. */
+  private poseArms(vm: ViewModel) {
+    const arms = this.arms;
+    if (!arms) return;
+    arms.root.visible = !!vm.arms && vm.root.visible;
+    if (!vm.arms || !vm.root.visible) return;
+    if (this.armsFor !== vm) {
+      this.armsFor = vm;
+      arms.setCurl(...vm.arms.curl);
+    }
+    this.camera.updateMatrixWorld(true);
+    arms.solve(vm.arms.right, vm.arms.left);
   }
 
   /** FOV multiplier for the world camera from ADS. */
