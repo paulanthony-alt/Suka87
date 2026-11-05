@@ -130,6 +130,7 @@ export class Interactions {
     const loot = g.difficulty.loot;
     const grants: Grant[] = [];
     let label = '';
+    let icon: string | undefined;
     let mesh: THREE.Object3D;
     const M = materials();
     if (ch === '1') {
@@ -150,11 +151,30 @@ export class Interactions {
         [[{ item: 'antiviral', qty: 1 }], 1.2 * loot],
       ]);
       grants.push(...r);
-      label = r.length > 1 ? 'Medical supplies' : ITEMS[r[0].item!].name;
-      mesh = this.box(0.3, 0.12, 0.22, new THREE.MeshStandardMaterial({ color: '#d8dcd6', roughness: 0.5, emissive: '#2a2a2a', emissiveIntensity: 0.3 }));
-      const cross = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.005, 0.03), M.emergency);
-      cross.position.y = 0.065;
-      mesh.add(cross, cross.clone().rotateY(Math.PI / 2));
+      // name and model must match what's inside: only medkits and antivirals go to the hotbar
+      label = r.map((x) => ITEMS[x.item!].name).join(', ');
+      icon = ITEMS[r[0].item!].icon;
+      const kind = r[0].item;
+      if (kind === 'medkit') {
+        mesh = this.box(0.3, 0.12, 0.22, new THREE.MeshStandardMaterial({ color: '#d8dcd6', roughness: 0.5, emissive: '#2a2a2a', emissiveIntensity: 0.3 }));
+        const cross = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.005, 0.03), M.emergency);
+        cross.position.y = 0.065;
+        mesh.add(cross, cross.clone().rotateY(Math.PI / 2));
+      } else if (kind === 'antiviral') {
+        mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.16, 10), M.violetGlow);
+        mesh.rotation.z = Math.PI / 2;
+        mesh.position.y = 0.02;
+      } else if (kind === 'bandage') {
+        mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.08, 14), new THREE.MeshStandardMaterial({ color: '#e6e2d6', roughness: 0.9, emissive: '#222', emissiveIntensity: 0.3 }));
+        mesh.position.y = 0.04;
+      } else {
+        mesh = new THREE.Mesh(new THREE.SphereGeometry(0.13, 12, 10), new THREE.MeshStandardMaterial({ color: '#cfcbbf', roughness: 0.95, emissive: '#1a1810', emissiveIntensity: 0.4 }));
+        mesh.scale.set(1, 0.55, 0.8);
+        mesh.position.y = 0.07;
+        const bottle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.14, 10), new THREE.MeshStandardMaterial({ color: '#7a4a2a', roughness: 0.3 }));
+        bottle.position.set(0.16, 0.0, 0);
+        mesh.add(bottle);
+      }
     } else if (ch === '3') {
       const style = g.level!.surfaceAt(pos.x, pos.z);
       const pool: [ItemId, number][] =
@@ -211,7 +231,7 @@ export class Interactions {
       },
     };
     this.list.push(it);
-    this.attachSprite(it, `pickup-${ch}`, { '1': 'i-ammo', '2': 'i-medkit', '3': 'i-scrap', '4': 'i-vial' }[ch] ?? 'i-scrap');
+    this.attachSprite(it, `pickup-${ch}`, icon ?? ({ '1': 'i-ammo', '3': 'i-scrap', '4': 'i-vial' }[ch] ?? 'i-scrap'));
   }
 
   private addWeapon(id: WeaponId, pos: THREE.Vector3) {

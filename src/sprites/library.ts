@@ -21,6 +21,29 @@ export interface SpriteAnim {
   height: number;
   /** joints for puppet animation (single-image art only) */
   rig?: PuppetRig;
+  /** low-res opacity mask of the whole sheet, for pixel-accurate hit tests */
+  mask: AlphaMask;
+}
+
+export interface AlphaMask {
+  w: number;
+  h: number;
+  data: Uint8Array;
+}
+
+/** Downsample a sheet's alpha channel (1 = solid) so shots can test against painted pixels. */
+export function alphaMask(src: CanvasImageSource & { width: number; height: number }, frames: number): AlphaMask {
+  const w = Math.max(16, Math.min(512, frames * 64));
+  const h = Math.max(32, Math.round((w / frames) * (src.height / (src.width / frames))));
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext('2d', { willReadFrequently: true })!;
+  ctx.drawImage(src, 0, 0, w, h);
+  const px = ctx.getImageData(0, 0, w, h).data;
+  const data = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) data[i] = px[i * 4 + 3] > 110 ? 1 : 0;
+  return { w, h, data };
 }
 
 interface AnimSpec {
@@ -87,6 +110,7 @@ class SpriteLibrary {
               height: h,
               width: (h * im.width) / a.frames / im.height,
               rig: a.frames === 1 ? detectRig(im) : undefined,
+              mask: alphaMask(im, a.frames),
             });
           })(),
         );
@@ -228,6 +252,7 @@ function placeholder(kind: InfectedKind, name: AnimName): SpriteAnim {
     loop: LOOPING[name],
     height: 2,
     width: (2 * W) / H,
+    mask: alphaMask(albedo, sheet.frames),
   };
   cache.set(key, anim);
   return anim;

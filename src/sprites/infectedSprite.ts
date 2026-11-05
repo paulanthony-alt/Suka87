@@ -29,6 +29,8 @@ export class InfectedSprite {
   private attackK = 0;
   private screamK = 0;
   private walkK = 0;
+  private frame = 0;
+  private flipped = false;
 
   constructor(private kind: InfectedKind | 'patientZero') {
     this.material = new THREE.MeshStandardMaterial({
@@ -90,6 +92,8 @@ export class InfectedSprite {
     this.t += dt * speed;
     const raw = Math.floor(this.t * a.fps);
     const frame = a.loop ? raw % a.frames : Math.min(a.frames - 1, raw);
+    this.frame = frame;
+    this.flipped = flip;
     const w = 1 / a.frames;
     for (const tx of [this.map, this.emap]) {
       if (!tx) continue;
@@ -191,6 +195,33 @@ export class InfectedSprite {
         break;
       }
     }
+  }
+
+  /**
+   * Hit zone at a quad UV, or null where the painting is transparent. Zones come from the
+   * joints found in the art (head above the neck, legs below the hips, arms outside the torso).
+   */
+  zoneAt(uv: THREE.Vector2): 'head' | 'body' | 'limb' | null {
+    const a = this.anim;
+    if (!a) return null;
+    const u = this.flipped ? 1 - uv.x : uv.x;
+    const v = uv.y;
+    const m = a.mask;
+    const x = Math.min(m.w - 1, Math.floor(((this.frame + u) / a.frames) * m.w));
+    const y = Math.min(m.h - 1, Math.floor((1 - v) * m.h));
+    // allow one mask pixel of slack so edges of thin limbs still register
+    let solid = false;
+    for (let dy = -1; dy <= 1 && !solid; dy++) for (let dx = -1; dx <= 1 && !solid; dx++) {
+      const xx = x + dx;
+      const yy = y + dy;
+      if (xx >= 0 && yy >= 0 && xx < m.w && yy < m.h && m.data[yy * m.w + xx]) solid = true;
+    }
+    if (!solid) return null;
+    const r = a.rig ?? { hip: 0.48, neck: 0.85, shoulder: 0.78, bodyX: 0.5, torso: 0.16 };
+    if (v >= r.neck - 0.01) return 'head';
+    if (v < r.hip - 0.04) return 'limb';
+    if (Math.abs(u - r.bodyX) > r.torso + 0.03 && v < r.shoulder + 0.02) return 'limb';
+    return 'body';
   }
 
   /** true once a non-looping animation has shown its last frame */

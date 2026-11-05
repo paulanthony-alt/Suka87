@@ -334,7 +334,8 @@ export class WeaponSystem {
       if (along < 0) continue;
       const perp = tmpV.addScaledVector(dir, -along).length();
       if (perp > 1.6 * inf.scale) continue;
-      for (const m of inf.rig.hitMeshes) targets.push(m);
+      if (g.settings.spriteMode) targets.push(inf.sprite.mesh);
+      else for (const m of inf.rig.hitMeshes) targets.push(m);
     }
     const hits = ray.intersectObjects(targets, false);
     let damage = d.damage;
@@ -347,8 +348,10 @@ export class WeaponSystem {
       const owner = h.object.userData.owner as Infected | undefined;
       if (owner) {
         if (struck.has(owner) || !owner.alive) continue;
+        // sprite mode: only opaque pixels of the painting count, and they pick the zone
+        const zone = (h.object === owner.sprite.mesh ? (h.uv ? owner.sprite.zoneAt(h.uv) : null) : h.object.userData.zone) as Zone | null;
+        if (!zone) continue;
         struck.add(owner);
-        const zone = h.object.userData.zone as Zone;
         const dist = h.distance;
         const fall = dist <= d.range ? 1 : Math.max(0.5, 1 - ((dist - d.range) / d.range) * 0.5);
         const r = owner.damage(damage * fall, zone, dir, d.stagger, g.infCtx, { headMul: d.headMul, limbMul: d.limbMul });

@@ -136,6 +136,10 @@ function joint(parent: THREE.Object3D, x: number, y: number, z = 0) {
   return g;
 }
 
+/** Invisible to the renderer (material.visible = false) but still hit by raycasts. */
+const HITBOX_MAT = new THREE.MeshBasicMaterial({ visible: false });
+const HB = { sphere: new THREE.SphereGeometry(1, 10, 8), box: new THREE.BoxGeometry(1, 1, 1) };
+
 function buildRig(kind: InfectedKind, boss: boolean): Rig {
   const M = rigMaterials();
   const hit: THREE.Mesh[] = [];
@@ -211,7 +215,39 @@ function buildRig(kind: InfectedKind, boss: boolean): Rig {
   const [hipL, kneeL] = mkLeg(-1);
   const [hipR, kneeR] = mkLeg(1);
 
-  return { root, body, pelvis, spine, chest, neck, head, jaw, shoulderL, shoulderR, elbowL, elbowR, hipL, hipR, kneeL, kneeR, hitMeshes: hit };
+  // Gameplay hit volumes. The visible parts are thin and leave gaps, so shots test simple,
+  // slightly generous shapes parented to the same joints (they animate with the body).
+  void hit;
+  const hv: THREE.Mesh[] = [];
+  const vol = (parent: THREE.Object3D, geo: THREE.BufferGeometry, zone: Zone, sx: number, sy: number, sz: number, y: number, z = 0) => {
+    const m = new THREE.Mesh(geo, HITBOX_MAT);
+    m.scale.set(sx, sy, sz);
+    m.position.set(0, y, z);
+    m.userData.zone = zone;
+    m.castShadow = false;
+    m.renderOrder = -1;
+    parent.add(m);
+    hv.push(m);
+  };
+  const torsoW = kind === 'bloater' ? 0.8 : kind === 'brute' ? 0.62 : kind === 'screamer' ? 0.34 : 0.42;
+  const torsoD = kind === 'bloater' ? 0.72 : kind === 'brute' ? 0.4 : 0.3;
+  vol(head, HB.sphere, 'head', 0.14, 0.16, 0.15, 0.06, 0.01);
+  vol(neck, HB.box, 'body', 0.14, 0.18, 0.14, 0.06);
+  vol(spine, HB.box, 'body', torsoW, 0.56, torsoD, 0.24, kind === 'bloater' ? 0.05 : 0);
+  vol(pelvis, HB.box, 'body', torsoW * 0.85, 0.24, torsoD * 0.9, -0.02);
+  for (const [sh, el] of [[shoulderL, elbowL], [shoulderR, elbowR]] as const) {
+    const upper = Math.abs(el.position.y);
+    const w = kind === 'brute' ? 0.2 : 0.15;
+    vol(sh, HB.box, 'limb', w, upper + 0.06, w, -upper / 2);
+    vol(el, HB.box, 'limb', w * 0.95, 0.46, w * 0.95, -0.21);
+  }
+  for (const [hp, kn] of [[hipL, kneeL], [hipR, kneeR]] as const) {
+    const upper = Math.abs(kn.position.y);
+    const w = kind === 'brute' ? 0.26 : kind === 'bloater' ? 0.24 : 0.2;
+    vol(hp, HB.box, 'limb', w, upper + 0.06, w, -upper / 2);
+    vol(kn, HB.box, 'limb', w * 0.85, 0.52, w * 0.9, -0.25, 0.02);
+  }
+  return { root, body, pelvis, spine, chest, neck, head, jaw, shoulderL, shoulderR, elbowL, elbowR, hipL, hipR, kneeL, kneeR, hitMeshes: hv };
 }
 
 // ------------------------------------------------------------------ entity
@@ -289,6 +325,7 @@ export class Infected {
     for (const m of this.rig.hitMeshes) m.userData.owner = this;
     this.rig.root.position.copy(this.pos);
     this.sprite = new InfectedSprite(this.boss ? 'patientZero' : kind);
+    this.sprite.mesh.userData.owner = this;
     this.model = models3d.ready ? new InfectedModel(kind, this.boss) : null;
     this.setRenderMode(ctx.spriteMode);
     if (opts.alerted) this.alert(ctx, true);

@@ -22,7 +22,7 @@ function symbolImage(id: string, w: number, h: number): Promise<HTMLImageElement
  * a chamfered dark plate (same language as the quick slots).
  */
 function pickupTexture(key: string, iconId: string, wide: boolean): THREE.Texture {
-  const hit = cache.get(key);
+  const hit = cache.get(key + '|' + iconId);
   if (hit) return hit;
   const W = wide ? 256 : 128;
   const H = 128;
@@ -31,7 +31,7 @@ function pickupTexture(key: string, iconId: string, wide: boolean): THREE.Textur
   c.height = H;
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  cache.set(key, t);
+  cache.set(key + '|' + iconId, t);
   const custom = sprites.pickupImages.get(key);
   const ctx = c.getContext('2d')!;
   if (custom) {
